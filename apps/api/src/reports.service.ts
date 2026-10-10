@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import type { ReadingStatus, ThemeScore } from '@enem/shared';
@@ -8,6 +8,7 @@ import { SimuladosService } from './simulados.service';
 import { ContactsService, sha256, validEmail } from './contacts.service';
 import { grade } from './grading';
 import { renderReportPdf } from './reports.pdf';
+import { EmailJsService } from './emailjs.service';
 
 const AREA_NAMES = ['Linguagens', 'Ciências da Natureza', 'Matemática', 'Ciências Humanas'];
 const INSTITUTION = () => process.env.REPORT_INSTITUTION || 'Instituto Federal de Sergipe - Campus Lagarto';
@@ -34,15 +35,19 @@ function areasFromThemes(themes: ThemeScore[], status: ReadingStatus): ReportAre
     return {area, ...totals, nota_percentual: score, nota: note, nota_dez: note === null ? null : Math.round(totals.total_acertos / totals.total_questoes * 1000) / 100};
   });
 }
-export function reportHtml(report: StudentReport): string {
+export function reportHtml(report: StudentReport, attachment = true): string {
   const areaRows = report.areas.map(area => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(area.area)}</td><td>${area.total_acertos}/${area.total_questoes}</td><td>${area.nota_dez === null ? (area.total_questoes ? 'Pendente' : 'Sem questões') : area.nota_dez.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' / 10'}</td></tr>`).join('');
   const overall = report.nota_geral_dez === null ? 'Pendente' : report.nota_geral_dez.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' / 10';
-  return `<!doctype html><html lang="pt-BR"><body style="font:15px Arial,sans-serif;color:#172033"><main style="max-width:680px;margin:24px auto"><p style="color:#2563eb">${escapeHtml(INSTITUTION())}</p><h1>Boletim individual</h1><h2>${escapeHtml(report.titulo)}</h2><p>Olá, ${escapeHtml(report.nome)}.</p><p>Matrícula: <strong>${escapeHtml(report.matricula)}</strong> | Curso: ${escapeHtml(report.curso || 'Não informado')}</p><p>Nota objetiva: <strong>${overall}</strong> (${report.geral.total_acertos} de ${report.total_questoes} questões).</p><table style="width:100%;text-align:left"><thead><tr><th>Área</th><th>Acertos</th><th>Nota</th></tr></thead><tbody>${areaRows}</tbody></table><h3>Leitura do resultado</h3><p>${escapeHtml(report.interpretacao)}</p><h3>Redação - avaliação manual</h3><p>Nota: ${report.redacao.nota_redacao === null ? 'Não informada' : report.redacao.nota_redacao + ' / 1000'}</p><p style="white-space:pre-wrap">${escapeHtml(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.')}</p><p>O boletim completo está no PDF em anexo.</p><p style="font-size:12px;color:#64748b">${escapeHtml(report.metodologia)}</p></main></body></html>`;
+  const priorities = attachment ? '' : `<h3>Prioridades de revisão</h3>${report.prioridades.map(p => `<p><strong>${escapeHtml(p.area)}</strong>: incorretas ${p.incorretas.join(', ') || 'nenhuma'}; em branco ${p.brancos.join(', ') || 'nenhuma'}; marcações duplas ${p.duplas.join(', ') || 'nenhuma'}; incertas ${p.incertas.join(', ') || 'nenhuma'}.</p>`).join('')}`;
+  const detail = attachment ? '<p>O boletim completo está no PDF em anexo.</p>' : `<h3>Questões</h3><table style="width:100%;text-align:left"><thead><tr><th>Questão</th><th>Área/tema</th><th>Resposta</th><th>Gabarito</th><th>Resultado</th></tr></thead><tbody>${report.questoes.map(q => `<tr><td>${q.numero}</td><td>${escapeHtml(q.tema)}</td><td>${escapeHtml(q.resposta)}</td><td>${escapeHtml(q.gabarito)}</td><td>${escapeHtml(q.resultado)}</td></tr>`).join('')}</tbody></table><p>O professor pode fornecer a versão em PDF pelo site.</p>`;
+  return `<!doctype html><html lang="pt-BR"><body style="font:15px Arial,sans-serif;color:#172033"><main style="max-width:680px;margin:24px auto"><p style="color:#2563eb">${escapeHtml(INSTITUTION())}</p><h1>Boletim individual</h1><h2>${escapeHtml(report.titulo)}</h2><p>Olá, ${escapeHtml(report.nome)}.</p><p>Matrícula: <strong>${escapeHtml(report.matricula)}</strong> | Curso: ${escapeHtml(report.curso || 'Não informado')}</p><p>Nota objetiva: <strong>${overall}</strong> (${report.geral.total_acertos} de ${report.total_questoes} questões).</p><table style="width:100%;text-align:left"><thead><tr><th>Área</th><th>Acertos</th><th>Nota</th></tr></thead><tbody>${areaRows}</tbody></table><h3>Leitura do resultado</h3><p>${escapeHtml(report.interpretacao)}</p>${priorities}<h3>Redação - avaliação manual</h3><p>Nota: ${report.redacao.nota_redacao === null ? 'Não informada' : report.redacao.nota_redacao + ' / 1000'}</p><p style="white-space:pre-wrap">${escapeHtml(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.')}</p>${detail}<p style="font-size:12px;color:#64748b">${escapeHtml(report.metodologia)}</p></main></body></html>`;
 }
 
 @Injectable()
 export class ReportEmailGateway {
+  constructor(@Optional() @Inject(EmailJsService) private readonly emailjs?: EmailJsService) {}
   availability(): {envio_disponivel: boolean; envio_motivo: string} {
+    if (this.emailjs?.configured()) return {envio_disponivel:true, envio_motivo:'Envio configurado por EmailJS. Boletim no corpo do email; PDF disponível no site.'};
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || '';
     const fromAddress = from.match(/<([^<>]+)>$/)?.[1] || from;
     if (!validEmail(fromAddress)) return {envio_disponivel: false, envio_motivo: 'Configure EMAIL_FROM com um remetente válido e autorizado.'};
@@ -55,6 +60,7 @@ export class ReportEmailGateway {
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM!;
     const subject = `Boletim - ${report.titulo}`.replace(/[\r\n]/g, ' ');
     const filename = `Boletim_${report.matricula.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+    if (this.emailjs?.configured()) return this.emailjs.send(report.email!, subject, reportHtml(report, false));
     if (process.env.RESEND_API_KEY) {
       const response = await fetch('https://api.resend.com/emails', {method: 'POST', headers: {Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey},
         body: JSON.stringify({from, to: [report.email], subject, html: reportHtml(report), attachments: [{filename, content: pdf.toString('base64')}]}), signal: AbortSignal.timeout(30000)});

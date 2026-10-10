@@ -21,10 +21,19 @@ try {
   assert.equal((await db.query('SELECT curso FROM student_contacts WHERE matricula=$1', ['0000001'])).rows[0].curso, 'Edificações');
   await db.query('DELETE FROM student_contacts WHERE matricula=$1', ['0000001']);
   console.log('PASS: migração legada de curso preserva contato e é idempotente.');
-  const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files')");
-  assert.equal(tables.rows.length, 9);
+  const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files','email_provider_slots','auth_attempt_limits')");
+  assert.equal(tables.rows.length, 11);
   assert.ok(tables.rows.every(row => row.rowsecurity));
   console.log('PASS: schema PostgreSQL e RLS em todas as tabelas.');
+  const now=Date.now();
+  const reserve=`INSERT INTO email_provider_slots(provider,next_at) VALUES($1,$2) ON CONFLICT(provider) DO UPDATE SET next_at=CASE WHEN email_provider_slots.next_at<$3 THEN $4 ELSE email_provider_slots.next_at+1100 END RETURNING next_at`;
+  const first=(await db.query(reserve,['emailjs',now,now,now])).rows[0];
+  const second=(await db.query(reserve,['emailjs',now,now,now])).rows[0];
+  assert.equal(Number(first.next_at),now);assert.equal(Number(second.next_at),now+1100);
+  const limit=`INSERT INTO auth_attempt_limits(scope_hash,window_at,total) VALUES($1,$2,1) ON CONFLICT(scope_hash) DO UPDATE SET total=CASE WHEN auth_attempt_limits.window_at<=$3 THEN 1 ELSE auth_attempt_limits.total+1 END, window_at=CASE WHEN auth_attempt_limits.window_at<=$4 THEN $5 ELSE auth_attempt_limits.window_at END WHERE auth_attempt_limits.window_at<=$6 OR auth_attempt_limits.total<$7 RETURNING total`;
+  const params=['fake-hash',now,now-60000,now-60000,now,now-60000,1];
+  assert.equal((await db.query(limit,params)).rows[0].total,1);assert.equal((await db.query(limit,params)).rows.length,0);
+  console.log('PASS: limites de OTP e espaçamento EmailJS persistem em PostgreSQL.');
 
   const key = JSON.stringify(Object.fromEntries(Array.from({length: 60}, (_, i) => [String(i + 1), 'ABCDE'[i % 5]])));
   await db.query('INSERT INTO core_simulado(id,titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES($1,$2,$3,$4,$5,$6)', [91, 'Fixture PostgreSQL', '2026-10-10T12:00:00.000Z', key, 60, '[{"inicio":1,"fim":30,"tema":"Linguagens"}]']);
@@ -55,6 +64,8 @@ try {
   await assert.rejects(db.query('SELECT * FROM core_simulado'), /permission denied/i);
   await db.exec('RESET ROLE; SET ROLE authenticated;');
   await assert.rejects(db.query('SELECT * FROM student_contacts'), /permission denied/i);
+  await assert.rejects(db.query('SELECT * FROM auth_attempt_limits'), /permission denied/i);
+  await assert.rejects(db.query('SELECT * FROM email_provider_slots'), /permission denied/i);
   await db.exec('RESET ROLE;');
   console.log('PASS: anon/authenticated não leem gabaritos, contatos ou boletins diretamente.');
 

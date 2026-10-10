@@ -11,7 +11,10 @@ export function validEmail(value: string): boolean {
   return value.length <= 254 && /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(value)
     && !value.split('@')[0].startsWith('.') && !value.split('@')[0].endsWith('.') && !value.split('@')[0].includes('..');
 }
-function header(value: string) { return value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+function header(value: string) {
+  const normalized = value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ');
+  return ({'email academico': 'email', 'e mail': 'email', 'e mail academico': 'email', 'descricao do curso': 'curso', 'nome completo': 'nome'} as Record<string,string>)[normalized] || normalized;
+}
 function contactComparable(value?: StudentContact) { return value ? {matricula: value.matricula, email: value.email, nome: value.nome, curso: value.curso || ''} : null; }
 @Injectable()
 export class ContactsService {
@@ -35,8 +38,13 @@ export class ContactsService {
     const book = new ExcelJS.Workbook();
     try { await book.xlsx.load(buffer as unknown as Parameters<typeof book.xlsx.load>[0]); }
     catch { throw new BadRequestException('Não foi possível abrir a planilha XLSX.'); }
-    if (book.worksheets.length !== 1) throw new BadRequestException('Use uma planilha com apenas uma aba para evitar importar contatos da aba errada.');
-    const sheet = book.worksheets[0];
+    const candidates = book.worksheets.filter(sheet => {
+      const headers = Array.from({length: sheet.columnCount}, (_, i) => sheet.getRow(1).getCell(i + 1).value).map(value => typeof value === 'string' ? header(value) : '');
+      return headers.includes('matricula') && headers.includes('email');
+    });
+    if (candidates.length > 1) throw new BadRequestException('Mais de uma aba contém matrícula e email. Mantenha apenas uma aba de contatos para evitar associações ambíguas.');
+    if (!candidates.length && book.worksheets.length !== 1) throw new BadRequestException('Nenhuma aba contém as colunas Matrícula e Email/Email Acadêmico na primeira linha.');
+    const sheet = candidates[0] || book.worksheets[0];
     if (sheet.rowCount > 10001 || sheet.columnCount > 20) throw new BadRequestException('A planilha aceita até 10.000 contatos e 20 colunas.');
     const rows: unknown[][] = [];
     sheet.eachRow({includeEmpty: false}, row => {
@@ -48,7 +56,7 @@ export class ContactsService {
     });
     return {rows, errors: []};
   }
-  async preview(buffer: Buffer, filename: string): Promise<ContactImportPreview> {
+  async preview(buffer: Buffer, filename: string, skipMissingEmails = false): Promise<ContactImportPreview> {
     const parsed = await this.rows(buffer, filename), errors = [...parsed.errors], warnings: string[] = [];
     if (parsed.rows.length < 2) errors.push('Inclua o cabeçalho e pelo menos um contato.');
     if (parsed.rows.length > 10001) throw new BadRequestException('A planilha aceita até 10.000 contatos.');
@@ -61,6 +69,9 @@ export class ContactsService {
       const row = parsed.rows[i]; if (row.every(value => value === null || value === undefined || value === '')) continue;
       const rawMatricula = row[matriculaIndex], rawEmail = row[emailIndex], rawName = nameIndex >= 0 ? row[nameIndex] : '';
       const prefix = `Linha ${i + 1}: `;
+      if (skipMissingEmails && (rawEmail === null || rawEmail === undefined || (typeof rawEmail === 'string' && ['', '-', '—'].includes(rawEmail.trim())))) {
+        warnings.push(prefix + 'sem email. Esta linha não será importada; contatos existentes não são removidos.'); continue;
+      }
       if (typeof rawMatricula !== 'string') { errors.push(prefix + 'a matrícula precisa estar como texto. No Excel, use o formato Texto para preservar zeros iniciais.'); continue; }
       const matricula = rawMatricula.trim(), email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
       const nome = rawName === null || rawName === undefined ? '' : typeof rawName === 'string' ? rawName.trim() : '';

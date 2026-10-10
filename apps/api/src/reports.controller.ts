@@ -13,9 +13,9 @@ export class ReportsController {
     response.setHeader('Content-Type', 'text/csv; charset=utf-8'); response.setHeader('Content-Disposition', 'attachment; filename="Modelo_Contatos.csv"'); response.send(this.contacts.template());
   }
   @Post('contatos/preview') @UseInterceptors(FileInterceptor('arquivo', {storage: memoryStorage(), limits: {fileSize: 2 * 1024 * 1024, files: 1, fields: 1}}))
-  preview(@UploadedFile() file?: Express.Multer.File) {
+  preview(@Body('ignorar_sem_email') skip: unknown, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('Selecione uma planilha CSV ou XLSX.');
-    return this.contacts.preview(file.buffer, file.originalname);
+    return this.contacts.preview(file.buffer, file.originalname, skip === 'sim');
   }
   @Post('contatos/importar') import(@Body('token') token: unknown, @Body('confirmar') confirmation: unknown) { return this.contacts.import(token, confirmation); }
   @Get('simulados/:id/boletins') list(@Param('id', ParseIntPipe) id: number) { return this.reports.list(id); }

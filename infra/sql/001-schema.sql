@@ -1,4 +1,8 @@
 -- Execute com o papel de servidor. Dados não são acessíveis pelo cliente anon/authenticated.
+CREATE TABLE IF NOT EXISTS email_provider_slots (provider TEXT PRIMARY KEY, next_at BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS auth_attempt_limits (scope_hash TEXT PRIMARY KEY, window_at BIGINT NOT NULL, total INTEGER NOT NULL);
+ALTER TABLE email_provider_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth_attempt_limits ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS core_simulado (
   id SERIAL PRIMARY KEY,
   titulo TEXT NOT NULL,
@@ -94,7 +98,7 @@ DECLARE role_name TEXT;
 BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files FROM %I', role_name);
+      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits FROM %I', role_name);
     END IF;
   END LOOP;
 END $$;

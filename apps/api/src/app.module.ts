@@ -11,5 +11,6 @@ import { ReportsController } from './reports.controller';
 import { ContactsService } from './contacts.service';
 import { ReportsService, ReportEmailGateway } from './reports.service';
 import { AuthController, AuthService } from './auth';
-@Module({controllers: [AppController, UploadsController, ReportsController, AuthController], providers: [DatabaseService, SimuladosService, OmrService, ExportService, StorageService, UploadsService, ContactsService, ReportsService, ReportEmailGateway, AuthService]})
+import { EmailJsService } from './emailjs.service';
+@Module({controllers: [AppController, UploadsController, ReportsController, AuthController], providers: [DatabaseService, SimuladosService, OmrService, ExportService, StorageService, UploadsService, ContactsService, ReportsService, ReportEmailGateway, AuthService, EmailJsService]})
 export class AppModule {}

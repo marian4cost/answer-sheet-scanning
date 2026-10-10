@@ -10,3 +10,6 @@
 .key-inputs select {padding:7px;min-width:50px;border:1px solid #cbd5e1;border-radius:6px;background:white}
 .nav .actions {gap:16px;flex-wrap:wrap}
 @media(max-width:600px){.nav{flex-direction:column;align-items:flex-start;gap:12px}.nav .actions{gap:12px}.nav-link{font-size:13px}}
+
+.auth-tabs{display:flex;gap:10px;margin:22px 0}.auth-tabs .button{flex:1}
+#senha,#confirmacao,#codigo{margin-bottom:15px}

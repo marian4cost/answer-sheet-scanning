@@ -66,11 +66,40 @@ test('XLSX aceita matrícula textual e recusa a numérica para não perder zeros
   const wrong = await contacts.preview(Buffer.from(await book.xlsx.writeBuffer()), 'contatos.xlsx');
   assert.equal(wrong.token, ''); assert.match(wrong.erros[0], /matrícula precisa estar como texto/);
 });
-test('XLSX com fórmulas ou múltiplas abas é rejeitado sem executar fórmulas', async () => {
+test('XLSX rejeita fórmulas e mais de uma aba de contatos sem executar fórmulas', async () => {
   const book = new ExcelJS.Workbook(), sheet = book.addWorksheet('Contatos');
   sheet.addRow(['matricula','email']); sheet.addRow([{formula:'"0001"',result:'0001'}, 'a@example.com']);
   const preview = await contacts.preview(Buffer.from(await book.xlsx.writeBuffer()), 'formulas.xlsx'); assert.equal(preview.token, '');
-  book.addWorksheet('Outra'); await assert.rejects(contacts.preview(Buffer.from(await book.xlsx.writeBuffer()), 'duas.xlsx'), /apenas uma aba/);
+  const other=book.addWorksheet('Outra');other.addRow(['matricula','email']);other.addRow(['0002','b@example.com']);
+  await assert.rejects(contacts.preview(Buffer.from(await book.xlsx.writeBuffer()), 'duas.xlsx'), /Mais de uma aba/);
+});
+test('relatório institucional seleciona Registros, reconhece cabeçalhos e ignora aba Filtros', async () => {
+  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Registros');
+  sheet.addRow(['#','Matrícula','Nome','Campus','Descrição do Curso','Email Acadêmico']);
+  sheet.addRow([1,'000009','Estudante fictício','Lagarto','Curso fictício','nove@example.com']);
+  const filters=book.addWorksheet('Filtros');filters.addRow(['Campo','Valor']);filters.addRow(['Situação no Curso','Matriculado']);
+  const preview=await contacts.preview(Buffer.from(await book.xlsx.writeBuffer()),'relatorio.xlsx');
+  assert.deepEqual(preview.erros,[]);assert.equal(preview.total,1);assert.deepEqual(preview.contatos[0],{matricula:'000009',email:'nove@example.com',nome:'Estudante fictício',curso:'Curso fictício'});
+  assert.equal(await contacts.get('000009'),undefined);
+});
+test('relatório com duas colunas de email reconhecidas é rejeitado por ambiguidade',async()=>{
+  const preview=await contacts.preview(Buffer.from('matricula,email,Email Acadêmico\n000009,a@example.com,b@example.com\n'),'ambiguo.csv');
+  assert.equal(preview.token,'');assert.match(preview.erros.join(' '),/repetidas/);
+});
+test('linhas sem email só são ignoradas com opção explícita e aparecem nos avisos',async()=>{
+  const file=Buffer.from('matricula,email\n000001,um@example.com\n000002,-\n000003,\n');
+  const strict=await contacts.preview(file,'missing.csv');assert.equal(strict.token,'');assert.equal(strict.erros.length,2);
+  const optional=await contacts.preview(file,'missing.csv',true);assert.equal(optional.erros.length,0);assert.equal(optional.total,1);assert.equal(optional.avisos.length,2);assert.ok(optional.token);
+  assert.equal(await contacts.get('000002'),undefined);
+  const wrong=await contacts.preview(Buffer.from('matricula,email\n000004,invalid-email\n'),'wrong.csv',true);assert.equal(wrong.token,'');assert.equal(wrong.erros.length,1);
+});
+test('EmailJS envia boletim completo no corpo, com questões e sem prometer anexo',async()=>{
+  const report=await reports.report(result1),calls=[];
+  const gateway=new ReportEmailGateway({configured:()=>true,send:async(...args)=>{calls.push(args);return 'emailjs-accepted';}});
+  assert.equal(gateway.availability().envio_disponivel,true);
+  await gateway.deliver(report,Buffer.from('fake PDF'),'fake-idempotency');
+  assert.equal(calls.length,1);assert.equal(calls[0][0],report.email);
+  assert.match(calls[0][2],/Questões/);assert.match(calls[0][2],/INCORRETA/);assert.doesNotMatch(calls[0][2],/PDF em anexo/);
 });
 test('mudanças de contatos são avisadas e prévia antiga não sobrescreve uma atualização posterior', async () => {
   const first = await contacts.preview(Buffer.from('matricula,email,nome\n000123,novo@example.com,Novo\n'), 'update.csv'); assert.equal(first.avisos.length, 1);

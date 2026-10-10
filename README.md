@@ -78,38 +78,34 @@ O plano dura 15 minutos e está vinculado ao conteúdo e ao contato. Mudanças e
 
 ## Email opcional dos boletins
 
-O envio só fica disponível com remetente e provedor configurados **no NestJS**:
+O envio só fica disponível com provedor configurado **no NestJS**:
 
 | Provedor | Variáveis |
 | --- | --- |
+| EmailJS | `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY` |
 | SMTP | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` |
 | Resend | `EMAIL_FROM`, `RESEND_API_KEY` |
 
 Use um remetente autorizado pelo provedor. `SMTP_FROM` é alternativa a `EMAIL_FROM`. O padrão SMTP é porta 587 com TLS exigido; 465 ou `SMTP_SECURE=true` usa TLS desde a conexão. Resend tem precedência quando `RESEND_API_KEY` existe. Credenciais não devem ir ao cliente ou a variáveis `NEXT_PUBLIC_*`.
 
-Os testes simulam os provedores, sem enviar emails reais. Email de **boletim** é separado do email de **login** enviado pelo Supabase Auth.
+EmailJS tem precedência. O template exclusivo usa assunto `{{subject}}`, destinatário `{{to_email}}` e HTML `{{{message_html}}}`. Ative **Allow EmailJS API for non-browser applications** com **Use Private Key**. Depois configure `EMAILJS_ENABLED=true` na API (`false` suspende envios). Ative **Do not save private data** no template para não guardar códigos/notas no histórico do provedor. O backend espaça chamadas em pelo menos 1,1 segundo, inclusive entre instâncias na Vercel. O plano gratuito aceita 200 requisições mensais, dois templates e mensagens de até 50 KB, sem anexo. Nesse modo, o boletim completo é enviado no corpo do email e o professor pode baixar o PDF no site. [Limites EmailJS](https://www.emailjs.com/pricing/) e [API oficial](https://www.emailjs.com/docs/rest-api/send/).
+
+Os testes simulam os provedores, sem enviar emails reais. Importar a planilha não envia mensagens. O relatório institucional com aba **Registros** e cabeçalhos **Matrícula**, **Email Acadêmico**, **Nome** e **Descrição do Curso** é reconhecido diretamente. Abas de filtros são ignoradas; duas abas de contatos ou duas colunas de email reconhecidas são rejeitadas por ambiguidade. Matrículas continuam como texto.
 
 ## Login dos professores
 
-O login está temporariamente desativado, por solicitação do responsável, com `AUTH_ENABLED=false` na API. A interface abre diretamente, sem email autorizado. Para reativar, configure `AUTH_ENABLED=true` e publique novamente a API. Na nuvem, uma flag ausente ou com valor diferente de `false` mantém a autenticação exigida; sem configuração válida, o acesso fica bloqueado.
+Configure `AUTH_ENABLED=true` para exigir login por email e senha. `AUTH_REGISTRATION_ENABLED=true` permite cadastro de qualquer email, conforme a escolha do responsável: todas as contas com email confirmado podem acessar os simulados, contatos e boletins. Com a flag de cadastro desativada, valem apenas `TEACHER_EMAILS` ou os papéis `teacher`/`admin` em metadados administrativos do Supabase. Na nuvem, uma flag de login ausente ou com valor diferente de `false` mantém a autenticação exigida.
 
-1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_ENABLED=true`, `TEACHER_EMAILS` e `WEB_URL` na API. A allowlist contém emails exatos separados por vírgula; a comparação ignora caixa. `WEB_URL` é a origem real da interface, sem barra final.
-2. Habilite email no Supabase Auth e configure **Site URL** com a interface e a URL de redirecionamento autorizada da interface terminada em `/login`. O login aceita o **link mágico do template padrão**, sem exigir editar o template.
-3. Na tela `/login`, peça acesso e clique no link recebido. O Supabase retorna à interface; o NestJS valida o token e a permissão do professor antes de criar a sessão. O fragmento com token é removido da barra de endereço e não é persistido em localStorage.
+O cadastro pede email, senha de 8 a 128 caracteres e confirmação da senha. O NestJS gera um OTP de cadastro no **Supabase Auth** e envia o código pelo **EmailJS**. A conta só recebe sessão após o Supabase confirmar o código. Senhas são tratadas pelo Supabase Auth; não são armazenadas em tabelas da aplicação, no EmailJS nem no navegador. Os códigos também não aparecem em respostas da API ou logs. A aplicação limita solicitações por email e IP em banco compartilhado entre deployments.
 
-O SMTP padrão do Supabase permite testes apenas com emails de **membros da equipe do projeto/organização**, não com toda a allowlist da aplicação. A documentação consultada em 10/10/2026 informa limite de **2 mensagens por hora**, sujeito a alteração. Para acesso dos demais professores, configure SMTP próprio no **Supabase Auth**, separadamente do provedor de boletins. [Restrições oficiais do SMTP padrão](https://supabase.com/docs/guides/auth/auth-smtp).
+As duas contas provisionadas pelo responsável usam login por senha. A interface mantém a alternativa de acesso por código. O SMTP padrão do Supabase é apenas uma alternativa legada para login por código quando EmailJS não está configurado; ele não permite atender usuários externos sem um SMTP próprio.
 
-**OTP opcional:** se o template da sua conta puder ser editado e você preferir código, inclua **`{{ .Token }}`** (ou `{{.Token}}`) no template Magic Link e confira o template de cadastro de contas novas. A interface também aceita esse código. A edição não é necessária para usar o link padrão.
+1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED=true`, `AUTH_REGISTRATION_ENABLED=true` e as quatro variáveis EmailJS na API.
+2. Habilite email no Supabase Auth e mantenha a confirmação de email. Para compatibilidade com links legados, cadastre a origem real em Site URL e a rota `/login` nas URLs de redirecionamento.
+3. Na tela `/login`, entre com email e senha ou selecione **Criar conta**, defina a senha e informe o código recebido por email. O fluxo EmailJS usa o Supabase apenas para gerar/verificar o OTP e não depende do SMTP padrão do Supabase.
 
-Exemplo de template:
+A sessão usa cookie `HttpOnly`, `SameSite=Lax`, seguro na nuvem, até uma hora. A identidade é validada no Supabase a cada chamada protegida. `user_metadata` editável pelo usuário não concede acesso. Sem sessão válida, contatos, boletins, PDFs e espelhos ficam bloqueados.
 
-```html
-<h2>Acesso do professor</h2>
-<p>Informe este código na tela de acesso:</p>
-<p><strong>{{ .Token }}</strong></p>
-```
-
-A sessão usa cookie `HttpOnly`, `SameSite=Lax`, seguro na nuvem, até uma hora. Contas fora da allowlist não podem solicitar acesso por email pela aplicação; um link válido de conta sem permissão também é bloqueado. Sessões com `app_metadata.role=teacher` validado pelo Supabase são reconhecidas, mas a solicitação de email nesta interface exige a allowlist. `user_metadata` editável pelo usuário não concede acesso de professor.
 
 Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/auth/auth-email-templates) e [login por email e OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless).
 

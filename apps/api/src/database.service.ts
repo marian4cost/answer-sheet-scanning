@@ -122,6 +122,8 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
     if (!columns('core_simulado').some(column => column.name === 'total_questoes')) this.sqlite!.exec('ALTER TABLE core_simulado ADD COLUMN total_questoes INTEGER NOT NULL DEFAULT 50');
     if (!columns('core_simulado').some(column => column.name === 'temas')) this.sqlite!.exec("ALTER TABLE core_simulado ADD COLUMN temas TEXT NOT NULL DEFAULT '[]'");
     this.sqlite!.exec(`
+      CREATE TABLE IF NOT EXISTS email_provider_slots (provider TEXT PRIMARY KEY, next_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS auth_attempt_limits (scope_hash TEXT PRIMARY KEY, window_at INTEGER NOT NULL, total INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS student_contacts (
         matricula TEXT PRIMARY KEY, email TEXT NOT NULL, nome TEXT NOT NULL DEFAULT '', curso TEXT NOT NULL DEFAULT '', atualizado_em TEXT NOT NULL
       );
