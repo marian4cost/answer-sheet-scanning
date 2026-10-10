@@ -3,7 +3,11 @@ import type { Request, Response, NextFunction } from 'express';
 import { SUPABASE_URL } from './config';
 
 const COOKIE = 'enem_session';
-export function authRequired() { return process.env.AUTH_ENABLED === 'true' || !!process.env.VERCEL; }
+export function authRequired() {
+  if (process.env.AUTH_ENABLED === 'false') return false;
+  return process.env.AUTH_ENABLED === 'true' || !!process.env.VERCEL;
+}
+function cookieSecure() { return !!process.env.VERCEL || authRequired(); }
 export function teacherAllowed(user: {email?: string; app_metadata?: {role?: string}}) {
   const allowed = (process.env.TEACHER_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   return !!user.email && (allowed.includes(user.email.toLowerCase()) || user.app_metadata?.role === 'teacher');
@@ -54,19 +58,20 @@ export class AuthService {
     if (typeof rawCode !== 'string' || !/^\d{6,10}$/.test(rawCode.trim())) throw new BadRequestException('Informe o código recebido por e-mail.');
     const session = await this.call('verify', {email, token: rawCode.trim(), type: 'email'});
     await this.user(session.access_token);
-    response.cookie(COOKIE, session.access_token, {httpOnly: true, secure: authRequired(), sameSite: 'lax', path: '/', maxAge: Math.min(Number(session.expires_in) || 3600, 3600) * 1000});
+    response.cookie(COOKIE, session.access_token, {httpOnly: true, secure: cookieSecure(), sameSite: 'lax', path: '/', maxAge: Math.min(Number(session.expires_in) || 3600, 3600) * 1000});
     return {email};
   }
-  logout(response: Response) { response.clearCookie(COOKIE, {httpOnly: true, secure: authRequired(), sameSite: 'lax', path: '/'}); return {ok: true}; }
+  logout(response: Response) { response.clearCookie(COOKIE, {httpOnly: true, secure: cookieSecure(), sameSite: 'lax', path: '/'}); return {ok: true}; }
   async session(rawToken: unknown, response: Response) {
     if (typeof rawToken !== 'string') throw new BadRequestException('Link de acesso inválido.');
     const user = await this.user(rawToken);
-    response.cookie(COOKIE, rawToken, {httpOnly: true, secure: authRequired(), sameSite: 'lax', path: '/', maxAge: 3600_000});
+    response.cookie(COOKIE, rawToken, {httpOnly: true, secure: cookieSecure(), sameSite: 'lax', path: '/', maxAge: 3600_000});
     return user;
   }
   middleware() {
     return async (request: Request, response: Response, next: NextFunction) => {
-      if (!authRequired() || request.method === 'OPTIONS' || ['/api/health', '/api/auth/config', '/api/auth/codigo', '/api/auth/login', '/api/auth/session', '/api/auth/logout'].includes(request.path)) return next();
+      if (!authRequired()) { response.setHeader('Cache-Control', 'private, no-store'); return next(); }
+      if (request.method === 'OPTIONS' || ['/api/health', '/api/auth/config', '/api/auth/codigo', '/api/auth/login', '/api/auth/session', '/api/auth/logout'].includes(request.path)) return next();
       try { await this.user(requestToken(request)); response.setHeader('Cache-Control', 'private, no-store'); next(); }
       catch (error) {
         const status = error instanceof ForbiddenException ? 403 : 401;

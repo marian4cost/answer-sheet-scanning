@@ -21,9 +21,19 @@ test('role teacher usa apenas app_metadata validado e não aceita metadados edit
   assert.equal(teacherAllowed({email:'outra@example.com',user_metadata:{role:'teacher'}}),false);
   assert.equal(teacherAllowed({email:'outra@example.com',app_metadata:{role:'student'}}),false);
 });
-test('nuvem sempre exige autenticação, mesmo quando a flag local está desligada',()=>{
+test('flag false desativa login explicitamente, inclusive na nuvem; demais valores preservam o padrão',()=>{
   process.env.AUTH_ENABLED='false';delete process.env.VERCEL;assert.equal(authRequired(),false);
-  process.env.VERCEL='1';assert.equal(authRequired(),true);
+  process.env.VERCEL='1';assert.equal(authRequired(),false);
+  for (const value of ['true','','FALSE','invalid']) {process.env.AUTH_ENABLED=value;assert.equal(authRequired(),true);}
+  delete process.env.AUTH_ENABLED;assert.equal(authRequired(),true);
+});
+test('login desativado libera leitura e gravação sem sessão ou consulta ao Supabase',async(t)=>{
+  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';
+  const calls=provider(t,{email:'teacher@example.com'}),auth=new AuthService();assert.equal(auth.config().required,false);
+  for(const [method,path] of [['GET','/api/simulados'],['POST','/api/simulados'],['GET','/api/contatos'],['GET','/api/resultados/1/boletim/pdf']]) {
+    const res=await middleware(auth,request({method,path}));assert.equal(res.nextCalls,1);assert.equal(res.headers['Cache-Control'],'private, no-store');
+  }
+  assert.equal(calls.length,0);
 });
 test('extração de token respeita Bearer e o nome exato do cookie, sem usar outros cookies',()=>{
   assert.equal(requestToken(request({headers:{authorization:'Bearer token-header',cookie:'enem_session=token-cookie'}})),'token-header');
@@ -54,7 +64,7 @@ test('conta autenticada de aluno recebe 403 e nunca acessa dados dos simulados',
   const result=await middleware(new AuthService(),request({headers:{authorization:'Bearer student-jwt'}}));assert.equal(result.statusCode,403);assert.equal(result.nextCalls,0);
 });
 test('nuvem sem configuração de acesso fecha a rota em vez de permitir acesso anônimo',async(t)=>{
-  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';delete process.env.SUPABASE_ANON_KEY;
+  process.env.VERCEL='1';delete process.env.AUTH_ENABLED;delete process.env.SUPABASE_ANON_KEY;
   const calls=provider(t,{email:'teacher@example.com'});const auth=new AuthService();assert.deepEqual(auth.config(),{required:true,configured:false});
   const result=await middleware(auth,request({headers:{authorization:'Bearer mock-jwt'}}));assert.equal(result.statusCode,401);assert.equal(result.nextCalls,0);assert.equal(calls.length,0);
 });
@@ -96,6 +106,11 @@ test('login não cria sessão se a verificação do código falha ou retorna con
 });
 test('logout limpa o mesmo cookie com proteção de transporte e sem divulgar token',()=>{
   const res=response();assert.deepEqual(new AuthService().logout(res),{ok:true});assert.equal(res.cleared[0][0],'enem_session');assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
+});
+test('cookies continuam Secure na nuvem quando o login está temporariamente desativado',async(t)=>{
+  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';provider(t,{email:'teacher@example.com'});
+  const auth=new AuthService(),res=response();await auth.session('mock-magic-link-token',res);auth.logout(res);
+  assert.equal(res.cookies[0][2].secure,true);assert.equal(res.cleared[0][1].secure,true);
 });
 test('pedido de link mágico usa callback /login da interface configurada e mantém allowlist',async(t)=>{
   process.env.WEB_URL='https://frontend.example.com/';const calls=provider(t,{});

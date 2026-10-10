@@ -91,7 +91,7 @@ Os testes simulam os provedores, sem enviar emails reais. Email de **boletim** �
 
 ## Login dos professores
 
-Na Vercel, a API exige autenticação mesmo com `AUTH_ENABLED=false`. Sem configuração válida, o acesso aos dados fica bloqueado.
+O login está temporariamente desativado, por solicitação do responsável, com `AUTH_ENABLED=false` na API. A interface abre diretamente, sem email autorizado. Para reativar, configure `AUTH_ENABLED=true` e publique novamente a API. Na nuvem, uma flag ausente ou com valor diferente de `false` mantém a autenticação exigida; sem configuração válida, o acesso fica bloqueado.
 
 1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_ENABLED=true`, `TEACHER_EMAILS` e `WEB_URL` na API. A allowlist contém emails exatos separados por vírgula; a comparação ignora caixa. `WEB_URL` é a origem real da interface, sem barra final.
 2. Habilite email no Supabase Auth e configure **Site URL** com a interface e a URL de redirecionamento autorizada da interface terminada em `/login`. O login aceita o **link mágico do template padrão**, sem exigir editar o template.
@@ -115,7 +115,7 @@ Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/aut
 
 ## Publicação Vercel e Supabase
 
-Publicação verificada em 10/10/2026: [interface](https://enem-leitor-web.vercel.app), [health da API](https://enem-leitor-api.vercel.app/api/health) e processador Python em `https://enem-leitor-omr.vercel.app/api/omr`. A interface exige acesso de professor; o processador recebe apenas chamadas autenticadas da API. O código está no [repositório privado](https://github.com/GenissonEmilio/enem-leitor).
+Publicação verificada em 10/10/2026: [interface](https://enem-leitor-web.vercel.app), [health da API](https://enem-leitor-api.vercel.app/api/health) e processador Python em `https://enem-leitor-omr.vercel.app/api/omr`. A interface tem acesso direto enquanto `AUTH_ENABLED=false`; o processador recebe apenas chamadas autenticadas da API. O código está no [repositório privado](https://github.com/GenissonEmilio/enem-leitor).
 
 Use **três projetos Vercel do mesmo repositório**. Para reproduzir a instalação em outra conta, substitua URLs e credenciais nas configurações abaixo.
 
@@ -145,7 +145,7 @@ SUPABASE_SERVICE_ROLE_KEY    chave de servidor para Storage privado
 SUPABASE_STORAGE_BUCKET=omr-private
 OMR_REMOTE_URL              URL HTTPS do Python terminada em /api/omr
 OMR_REMOTE_SECRET           segredo aleatório longo, igual ao do Python
-AUTH_ENABLED=true
+AUTH_ENABLED=false          acesso direto temporário; true reativa o login
 TEACHER_EMAILS              emails autorizados separados por vírgula
 WEB_URL                     origem da interface usada no callback /login
 CORS_ORIGINS                origens HTTPS exatas da interface, separadas por vírgula
@@ -160,7 +160,7 @@ O NestJS 12 publica módulos ESM; esta aplicação CommonJS usa o suporte `requi
 
 **Python:** `OMR_REMOTE_SECRET` igual ao da API, `SUPABASE_URL` e `SUPABASE_STORAGE_BUCKET`. Recebe URL assinada e não precisa da chave de serviço Supabase. Rejeita origens externas, redirects e chamadas sem segredo. Retorna leitura/espelho; NestJS calcula notas.
 
-Confira o deployment real antes de divulgar um endereço. Faça smoke tests de `/api/health`, `/api/auth/config`, acesso anônimo bloqueado, login autorizado, chave revisada, provas sintéticas de 50/60 questões, persistência após novo deployment, espelho/PDF e contatos fictícios. Email real depende de destinatário autorizado e confirmação na interface.
+Confira o deployment real antes de divulgar um endereço. Faça smoke tests de `/api/health`, `/api/auth/config`, acesso direto quando `AUTH_ENABLED=false` ou login autorizado quando `true`, chave revisada, provas sintéticas de 50/60 questões, persistência após novo deployment, espelho/PDF e contatos fictícios. Email real depende de destinatário autorizado e confirmação na interface.
 
 ## Migração SQLite para PostgreSQL
 
