@@ -38,7 +38,7 @@ jobs:
       - name: Instalar ferramentas de PDFs e fontes para os cartões de teste
         run: |
           sudo apt-get update
-          sudo apt-get install --yes poppler-utils fonts-liberation fonts-dejavu-core
+          sudo apt-get install --yes poppler-utils fonts-liberation2 fonts-dejavu-core
       - name: Instalar dependências
         run: |
           npm ci
