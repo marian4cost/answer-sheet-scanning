@@ -128,6 +128,20 @@ test('Storage se recusa a guardar gabaritos em bucket público', async () => {
   } finally { config.SUPABASE_URL = original.url; config.SUPABASE_SERVICE_ROLE_KEY = original.secret; config.STORAGE_MODE = original.mode; await srv.close(); }
 });
 
+test('Storage distingue objeto ausente HTTP400/statusCode404 de erro genérico', async () => {
+  const srv = await serverFixture((req, res) => {
+    res.statusCode = 400; res.setHeader('Content-Type', 'application/json');
+    res.end(req.url.includes('missing.png') ? '{"statusCode":"404","error":"not_found","message":"Object not found"}' : '{"statusCode":"400","error":"invalid_request"}');
+  });
+  const original = {url: config.SUPABASE_URL, secret: config.SUPABASE_SERVICE_ROLE_KEY, mode: config.STORAGE_MODE};
+  try {
+    config.SUPABASE_URL = srv.url; config.SUPABASE_SERVICE_ROLE_KEY = 'fixture-secret'; config.STORAGE_MODE = 'supabase';
+    const storage = new StorageService();
+    await assert.rejects(storage.get('missing.png'), error => error.getStatus() === 404);
+    await assert.rejects(storage.get('invalid.png'), error => error.getStatus() === 500);
+  } finally { config.SUPABASE_URL = original.url; config.SUPABASE_SERVICE_ROLE_KEY = original.secret; config.STORAGE_MODE = original.mode; await srv.close(); }
+});
+
 test('transporte OMR envia URL temporária e salva debug sem passar base64 do arquivo pelo servidor remoto', async () => {
   const f = await fixture();
   let payload;

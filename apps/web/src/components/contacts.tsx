@@ -14,7 +14,7 @@ export function ContactsView() {
   const [preview, setPreview] = useState<ContactImportPreview | null>(null);
   const [search, setSearch] = useState(''), [page, setPage] = useState(0), [previewPage, setPreviewPage] = useState(0);
   const notify = useNotice();
-  const filtered = useMemo(() => (data?.contatos || []).filter(contact => [contact.matricula,contact.nome,contact.email].some(value => value.toLocaleLowerCase().includes(search.toLocaleLowerCase()))), [data,search]);
+  const filtered = useMemo(() => (data?.contatos || []).filter(contact => [contact.matricula,contact.nome,contact.email,contact.curso || ''].some(value => value.toLocaleLowerCase().includes(search.toLocaleLowerCase()))), [data,search]);
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 25) - 1));
   async function read(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setFormError(''); setPreview(null);
@@ -34,7 +34,7 @@ export function ContactsView() {
   }
   return <><BackLink/><div className="page-heading"><div><span className="eyebrow">MATRÍCULAS E DESTINATÁRIOS</span><h1>Contatos dos alunos</h1><p>Associe cada matrícula ao email correto para preparar os boletins.</p></div><a className="button outline" href="/api/contatos/modelo.csv"><Download size={17}/>Baixar modelo CSV</a></div>
     <div className="contacts-grid"><section className="card"><div className="section-heading"><Upload size={21}/><h2>Importar planilha</h2></div>
-      <p className="help">Colunas: <strong>matricula</strong>, <strong>email</strong> e <strong>nome</strong> (opcional). Use CSV ou XLSX com uma aba, até 2 MB e 10.000 contatos.</p>
+      <p className="help">Colunas obrigatórias: <strong>matricula</strong> e <strong>email</strong>. <strong>Nome</strong> e <strong>curso</strong> são opcionais e aparecem no boletim. Use CSV ou XLSX com uma aba, até 2 MB e 10.000 contatos. Sem a coluna curso, os cursos já cadastrados são preservados.</p>
       <Alert>Formate a coluna de matrícula como <strong>Texto</strong> no Excel. Assim, <strong>000123</strong> continua diferente de <strong>123</strong>. A matrícula deve ser a mesma usada no envio da prova.</Alert>
       <form onSubmit={read}><label className="field-label" htmlFor="contacts-file">Planilha de contatos</label><input id="contacts-file" name="arquivo" type="file" accept=".csv,.xlsx" required disabled={busy} onChange={() => {setPreview(null);setFormError('');}}/><button className="button primary full" type="submit" disabled={busy}>{busy ? 'Processando...' : 'Ver prévia da importação'}</button></form>
       <p className="help">A planilha será validada antes de salvar. Matrículas repetidas ou linhas inválidas precisam ser corrigidas; contatos existentes aparecem como atualizações na prévia.</p>
@@ -51,7 +51,7 @@ export function ContactsView() {
     </section></>;
 }
 function ContactsTable({contacts}:{contacts:StudentContact[]}) {
-  return <div className="table-scroll"><table aria-label="Matrículas e emails"><thead><tr><th>Matrícula</th><th>Nome</th><th>Email</th></tr></thead><tbody>{contacts.map(contact => <tr key={contact.matricula}><td className="matricula">{contact.matricula}</td><td>{contact.nome || 'Não informado'}</td><td className="report-email">{contact.email}</td></tr>)}</tbody></table></div>;
+  return <div className="table-scroll"><table aria-label="Matrículas e emails"><thead><tr><th>Matrícula</th><th>Nome</th><th>Curso</th><th>Email</th></tr></thead><tbody>{contacts.map(contact => <tr key={contact.matricula}><td className="matricula">{contact.matricula}</td><td>{contact.nome || 'Não informado'}</td><td>{contact.curso || 'Não informado'}</td><td className="report-email">{contact.email}</td></tr>)}</tbody></table></div>;
 }
 function Paging({page,total,onChange}:{page:number;total:number;onChange:(page:number)=>void}) {
   if (total <= 25) return null;

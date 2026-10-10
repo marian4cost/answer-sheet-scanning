@@ -4,7 +4,7 @@ import { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Pool, PoolClient } from 'pg';
-import { DATABASE_PATH, DATABASE_URL, DATABASE_SSL, PROJECT_ROOT } from './config';
+import { DATABASE_PATH, DATABASE_URL, DATABASE_SSL, DATABASE_SSL_CA } from './config';
 import { assetPath } from './assets';
 
 export interface DatabaseRunResult { changes: number; lastInsertRowid?: number }
@@ -59,8 +59,8 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
     if (process.env.VERCEL && !DATABASE_URL) throw new Error('Configure DATABASE_URL para executar a API na Vercel.');
     this.dialect = DATABASE_URL ? 'postgres' : 'sqlite';
     if (DATABASE_URL) {
-      this.pool = new Pool({connectionString: DATABASE_URL, max: 5, connectionTimeoutMillis: 10_000,
-        idleTimeoutMillis: 30_000, ...(DATABASE_SSL ? {ssl: {rejectUnauthorized: true}} : {})});
+      this.pool = new Pool({connectionString: DATABASE_URL, max: process.env.VERCEL ? 1 : 5, connectionTimeoutMillis: 10_000,
+        idleTimeoutMillis: 30_000, ...(DATABASE_SSL ? {ssl: {rejectUnauthorized: true, ...(DATABASE_SSL_CA ? {ca: DATABASE_SSL_CA} : {})}} : {})});
       this.ready = this.initializePostgres().catch(async error => {
         // Um cold start rejeitado não pode deixar um pool/instância inutilizável vivo.
         await this.closePool().catch(() => {});
@@ -123,7 +123,7 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
     if (!columns('core_simulado').some(column => column.name === 'temas')) this.sqlite!.exec("ALTER TABLE core_simulado ADD COLUMN temas TEXT NOT NULL DEFAULT '[]'");
     this.sqlite!.exec(`
       CREATE TABLE IF NOT EXISTS student_contacts (
-        matricula TEXT PRIMARY KEY, email TEXT NOT NULL, nome TEXT NOT NULL DEFAULT '', atualizado_em TEXT NOT NULL
+        matricula TEXT PRIMARY KEY, email TEXT NOT NULL, nome TEXT NOT NULL DEFAULT '', curso TEXT NOT NULL DEFAULT '', atualizado_em TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS report_feedback (
         resultado_id INTEGER PRIMARY KEY REFERENCES core_resultadoaluno(id) ON DELETE CASCADE,
@@ -148,6 +148,7 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
         payload TEXT NOT NULL CHECK(json_valid(payload)), expira_em TEXT NOT NULL, criado_em TEXT NOT NULL
       );
     `);
+    if (!columns('student_contacts').some(column => column.name === 'curso')) this.sqlite!.exec("ALTER TABLE student_contacts ADD COLUMN curso TEXT NOT NULL DEFAULT ''");
   }
   private async sqliteLock<T>(work: () => T | Promise<T>): Promise<T> {
     const previous = this.sqliteQueue;

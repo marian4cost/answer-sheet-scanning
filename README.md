@@ -57,18 +57,20 @@ Excluir um simulado exige confirmação e remove envios, resultados, feedbacks e
 
 ## Contatos, redação e boletins
 
-Em **Contatos**, baixe o modelo e preencha `matricula`, `email` e `nome` opcional. Aceita CSV ou XLSX com uma aba, até **2 MB** e **10.000 contatos**. Formate a matrícula como **Texto** no Excel: `000123` é diferente de `123`. Matrículas numéricas em XLSX, fórmulas, emails inválidos e duplicidades são rejeitados. A importação exige prévia e confirmação; nenhum contato é salvo parcialmente quando há erro. Alterações de contatos existentes são avisadas.
+Em **Contatos**, baixe o modelo e preencha `matricula`, `email`, `nome` e `curso` (os dois últimos opcionais). Aceita CSV ou XLSX com uma aba, até **2 MB** e **10.000 contatos**. Formate a matrícula como **Texto** no Excel: `000123` é diferente de `123`. Matrículas numéricas em XLSX, fórmulas, emails inválidos e duplicidades são rejeitados. A importação exige prévia e confirmação; nenhum contato é salvo parcialmente quando há erro. Alterações de contatos existentes são avisadas. Uma planilha sem a coluna `curso` preserva o curso já cadastrado.
 
 Exemplo fictício:
 
 ```csv
-matricula,email,nome
-000123,aluno@example.com,Aluno de exemplo
+matricula,email,nome,curso
+000123,aluno@example.com,Aluno de exemplo,Curso de exemplo
 ```
 
 Em **Boletins**, revise cada prova. O documento inclui nota objetiva geral, temas e áreas Linguagens, Ciências da Natureza, Matemática e Ciências Humanas. Temas são associados às áreas por termos conhecidos; nomes sem associação ficam no detalhamento. Uma área sem faixas aparece como **Sem questões**, sem nota inventada.
 
-A redação é corrigida fora da aplicação. O professor salva nota opcional de **0 a 1000** e feedback de até **10.000 caracteres** por prova. Campos vazios continuam não informados. O PDF usa um **modelo provisório**, preparado para receber o modelo final. `REPORT_INSTITUTION` configura a instituição.
+A redação é corrigida fora da aplicação. O professor salva nota opcional de **0 a 1000** e feedback de até **10.000 caracteres** por prova. Campos vazios continuam não informados. O boletim segue o modelo individual fornecido: identificação com curso, cartões de desempenho por área, interpretação, prioridades de revisão e comparação questão por questão em tabelas coloridas. Textos longos continuam em páginas adicionais. `REPORT_INSTITUTION` configura a instituição.
+
+O boletim apresenta notas objetivas de **0 a 10**, calculadas por `acertos / total × 10`. A tabela geral e o Excel conservam os percentuais. Brancos e marcações duplas não pontuam e permanecem no denominador; não foi adicionada anulação de questões oficiais. O detalhamento usa a chave histórica do envio. Falhas ou chaves incompletas deixam a nota pendente; leituras incertas são provisórias e bloqueiam envio por email.
 
 Para enviar, selecione boletins aptos, clique em **Revisar destinatários**, confira matrículas, emails e PDFs e confirme o envio. Importar contatos ou salvar redação não envia mensagens. Incertezas, falhas e chave histórica incompleta bloqueiam o envio. Duplas são respostas anuladas.
 
@@ -132,6 +134,7 @@ Prepare Supabase, função OpenCV, API e interface, nessa ordem. Depois de obter
 ```text
 DATABASE_URL                 conexão PostgreSQL real do Supabase
 DATABASE_SSL=true
+DATABASE_SSL_CA_BASE64       certificado CA oficial em PEM codificado em base64
 STORAGE_MODE=supabase
 SUPABASE_URL                 URL real do projeto
 SUPABASE_ANON_KEY            chave usada para consultar Supabase Auth
@@ -146,7 +149,7 @@ CORS_ORIGINS                origens HTTPS exatas da interface, separadas por ví
 REPORT_INSTITUTION          instituição do boletim
 ```
 
-`WEB_URL` também serve como alternativa a `CORS_ORIGINS` quando há uma origem. Se estiver ausente, o callback de login usa a primeira origem de `CORS_ORIGINS`. Use origens sem barra final e apenas domínios de produção/preview autorizados. Adicione variáveis de email somente para habilitar boletins.
+`WEB_URL` também serve como alternativa a `CORS_ORIGINS` quando há uma origem. Se estiver ausente, o callback de login usa a primeira origem de `CORS_ORIGINS`. Use origens sem barra final e apenas domínios de produção/preview autorizados. Adicione variáveis de email somente para habilitar boletins. A conexão PostgreSQL exige certificado TLS válido e hostname correspondente; obtenha a CA oficial em Database → Settings no Supabase e codifique o PEM em base64. Caracteres reservados da senha devem ser codificados no componente de senha da URI, e o valor completo deve estar entre aspas no `.env`.
 
 **Interface:** `API_BASE_URL` = URL HTTPS da API **sem `/api` e sem barra final**. As rewrites encaminham chamadas; senha de banco, chave de serviço e segredo OMR não são enviados ao navegador.
 
@@ -173,10 +176,12 @@ Exige `STORAGE_MODE=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e buc
 
 O SQLite não é modificado. IDs, notas, respostas, matrículas e snapshots são preservados; conflitos abortam em vez de sobrescrever. Tabelas são gravadas em transação PostgreSQL. Arquivos já copiados podem permanecer no Storage se uma etapa posterior falhar; uma repetição confere conteúdo antes de reutilizá-los. Não publique banco, contatos, provas, backups ou credenciais no Git.
 
+Confira a cópia independentemente, incluindo SHA-256 dos espelhos, com `node scripts/verify-postgres-migration.mjs`. O certificado configurado também é usado pelos scripts de migração e verificação.
+
 ## Testes e evidências
 
 ```bash
-npm test
+DATABASE_URL='' STORAGE_MODE=local OMR_REMOTE_URL='' AUTH_ENABLED=false npm test
 npm run typecheck
 npm run build
 node scripts/test-postgres-schema.mjs

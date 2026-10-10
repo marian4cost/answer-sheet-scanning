@@ -15,7 +15,9 @@ const source = resolve(root, process.env.DATABASE_PATH || 'db.sqlite3');
 await access(source);
 const sqlite = new DatabaseSync(source, {readOnly: true});
 const pool = new pg.Pool({connectionString: process.env.DATABASE_URL, max: 1,
-  ...(process.env.DATABASE_SSL === 'true' ? {ssl: {rejectUnauthorized: true}} : {})});
+  connectionTimeoutMillis: 15_000,
+  ...(process.env.DATABASE_SSL === 'true' ? {ssl: {rejectUnauthorized: true,
+    ...(process.env.DATABASE_SSL_CA_BASE64 ? {ca: Buffer.from(process.env.DATABASE_SSL_CA_BASE64, 'base64').toString('utf8')} : {})}} : {})});
 const tables = [
   ['core_simulado', 'id'], ['core_lotecorrecao', 'id'], ['core_resultadoaluno', 'id'],
   ['student_contacts', 'matricula'], ['report_feedback', 'resultado_id'], ['report_deliveries', 'id'],

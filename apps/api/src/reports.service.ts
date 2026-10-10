@@ -1,21 +1,19 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import PDFDocument from 'pdfkit';
 import nodemailer from 'nodemailer';
-import type { AnswerKey, ReadingStatus, ThemeScore } from '@enem/shared';
-import type { StudentReport, EssayFeedback, ReportArea, ReportList, DeliveryPlan, DeliveryResult, ReportDelivery } from '@enem/shared/src/reports';
+import type { ReadingStatus, ThemeScore } from '@enem/shared';
+import type { StudentReport, EssayFeedback, ReportArea, ReportList, DeliveryPlan, DeliveryResult, ReportDelivery, ReportQuestion, ReportPriority } from '@enem/shared/src/reports';
 import { DatabaseService } from './database.service';
 import { SimuladosService } from './simulados.service';
 import { ContactsService, sha256, validEmail } from './contacts.service';
 import { grade } from './grading';
-import { assetPath } from './assets';
+import { renderReportPdf } from './reports.pdf';
 
 const AREA_NAMES = ['Linguagens', 'Ciências da Natureza', 'Matemática', 'Ciências Humanas'];
 const INSTITUTION = () => process.env.REPORT_INSTITUTION || 'Instituto Federal de Sergipe - Campus Lagarto';
 type PlanRecord = {resultado_id: number; matricula: string; nome: string; email: string; nota_percentual: number; content_hash: string};
 type DeliveryRow = {id: number; resultado_id: number; destinatario: string; status: ReportDelivery['status']; content_hash: string; message_id: string; erro: string};
 export function escapeHtml(value: unknown): string { return String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]!)); }
-function plain(value: string): string { return value.replace(/[\u2010-\u2015]/g, '-').replace(/\x00/g, ''); }
 function canonicalArea(theme: string): string | undefined {
   const normalized = theme.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (/(linguage|literatura|portugues|ingles|espanhol|artes|educacao fisica)/.test(normalized)) return AREA_NAMES[0];
@@ -32,12 +30,14 @@ function areasFromThemes(themes: ThemeScore[], status: ReadingStatus): ReportAre
       total_rasuras: sum.total_rasuras + theme.total_rasuras, total_brancos: sum.total_brancos + theme.total_brancos,
       total_incertas: sum.total_incertas + theme.total_incertas}), {total_questoes: 0, total_acertos: 0, total_erros: 0, total_rasuras: 0, total_brancos: 0, total_incertas: 0});
     const score = totals.total_questoes ? Math.round(totals.total_acertos / totals.total_questoes * 10000) / 100 : 0;
-    return {area, ...totals, nota_percentual: score, nota: !totals.total_questoes || status === 'ERRO_LEITURA' ? null : score};
+    const note = !totals.total_questoes || status === 'ERRO_LEITURA' ? null : score;
+    return {area, ...totals, nota_percentual: score, nota: note, nota_dez: note === null ? null : Math.round(totals.total_acertos / totals.total_questoes * 1000) / 100};
   });
 }
 export function reportHtml(report: StudentReport): string {
-  const themeRows = report.temas.map(theme => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(theme.tema)}</td><td>${theme.total_acertos}/${theme.total_questoes}</td><td>${theme.nota_percentual}%</td></tr>`).join('');
-  return `<!doctype html><html lang="pt-BR"><body style="font:15px Arial,sans-serif;color:#172033"><main style="max-width:680px;margin:24px auto"><p style="color:#2563eb">${escapeHtml(INSTITUTION())}</p><h1>Boletim do simulado</h1><h2>${escapeHtml(report.titulo)}</h2><p>Olá, ${escapeHtml(report.nome)}.</p><p>Matrícula: <strong>${escapeHtml(report.matricula)}</strong></p><p>Seu desempenho objetivo foi <strong>${report.geral.nota_percentual}%</strong> (${report.geral.total_acertos} de ${report.total_questoes} questões).</p><table style="width:100%;text-align:left"><thead><tr><th>Tema</th><th>Acertos</th><th>Desempenho</th></tr></thead><tbody>${themeRows}</tbody></table><h3>Redação - avaliação manual</h3><p>Nota: ${report.redacao.nota_redacao === null ? 'Não informada' : report.redacao.nota_redacao + ' / 1000'}</p><p style="white-space:pre-wrap">${escapeHtml(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.')}</p><p>O boletim completo está no PDF em anexo.</p><p style="font-size:12px;color:#64748b">${escapeHtml(report.metodologia)}</p></main></body></html>`;
+  const areaRows = report.areas.map(area => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(area.area)}</td><td>${area.total_acertos}/${area.total_questoes}</td><td>${area.nota_dez === null ? (area.total_questoes ? 'Pendente' : 'Sem questões') : area.nota_dez.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' / 10'}</td></tr>`).join('');
+  const overall = report.nota_geral_dez === null ? 'Pendente' : report.nota_geral_dez.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' / 10';
+  return `<!doctype html><html lang="pt-BR"><body style="font:15px Arial,sans-serif;color:#172033"><main style="max-width:680px;margin:24px auto"><p style="color:#2563eb">${escapeHtml(INSTITUTION())}</p><h1>Boletim individual</h1><h2>${escapeHtml(report.titulo)}</h2><p>Olá, ${escapeHtml(report.nome)}.</p><p>Matrícula: <strong>${escapeHtml(report.matricula)}</strong> | Curso: ${escapeHtml(report.curso || 'Não informado')}</p><p>Nota objetiva: <strong>${overall}</strong> (${report.geral.total_acertos} de ${report.total_questoes} questões).</p><table style="width:100%;text-align:left"><thead><tr><th>Área</th><th>Acertos</th><th>Nota</th></tr></thead><tbody>${areaRows}</tbody></table><h3>Leitura do resultado</h3><p>${escapeHtml(report.interpretacao)}</p><h3>Redação - avaliação manual</h3><p>Nota: ${report.redacao.nota_redacao === null ? 'Não informada' : report.redacao.nota_redacao + ' / 1000'}</p><p style="white-space:pre-wrap">${escapeHtml(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.')}</p><p>O boletim completo está no PDF em anexo.</p><p style="font-size:12px;color:#64748b">${escapeHtml(report.metodologia)}</p></main></body></html>`;
 }
 
 @Injectable()
@@ -99,11 +99,32 @@ export class ReportsService {
     const unknown = resultado.desempenho_temas.filter(theme => !canonicalArea(theme.tema));
     if (unknown.length) warnings.push('Temas apresentados separadamente, sem associação automática a uma área: ' + unknown.map(theme => theme.tema).join(', ') + '.');
     const score = grade(resultado.respostas_detectadas, resultado.gabarito_do_envio, resultado.status, simulado.total_questoes);
+    const unavailable = resultado.status === 'ERRO_LEITURA' || !!invalid.length || !!invalidKey.length;
+    const provisional = resultado.status === 'ALERTA_REVISAO' || !!resultado.total_incertas || Object.values(resultado.respostas_detectadas).includes('INC');
+    const areas = areasFromThemes(resultado.desempenho_temas, unavailable ? 'ERRO_LEITURA' : resultado.status);
+    const questoes: ReportQuestion[] = Array.from({length:simulado.total_questoes},(_,i) => {
+      const numero=i+1, resposta=resultado.respostas_detectadas[String(numero)] || '—', gabarito=resultado.gabarito_do_envio[String(numero)] || '—';
+      const tema=simulado.temas.find(range=>range.inicio<=numero && range.fim>=numero)?.tema || 'Sem tema';
+      const estado: ReportQuestion['resultado'] = resultado.status==='ERRO_LEITURA' || !'ABCDE'.split('').includes(gabarito) ? 'PENDENTE' : resposta==='BNK' ? 'BRANCO' : resposta==='RAS' ? 'DUPLA' : resposta==='INC' ? 'INCERTA' : !'ABCDE'.split('').includes(resposta) ? 'PENDENTE' : resposta===gabarito ? 'CORRETA' : 'INCORRETA';
+      return {numero,resposta,gabarito,tema,area:canonicalArea(tema)||null,resultado:estado};
+    });
+    const prioridades: ReportPriority[] = [...new Set(questoes.map(q=>q.area || q.tema))].map(area=>{
+      const rows=questoes.filter(q=>(q.area || q.tema)===area);
+      const numbers=(state:ReportQuestion['resultado'])=>rows.filter(q=>q.resultado===state).map(q=>q.numero);
+      return {area,incorretas:numbers('INCORRETA'),brancos:numbers('BRANCO'),duplas:numbers('DUPLA'),incertas:numbers('INCERTA')};
+    });
+    const notaDez=unavailable?null:Math.round(score.total_acertos/simulado.total_questoes*1000)/100;
+    const validAreas=areas.filter(area=>area.nota_dez!==null), best=validAreas.length?Math.max(...validAreas.map(area=>area.nota_dez!)):null;
+    const bestNames=best===null?[]:validAreas.filter(area=>area.nota_dez===best).map(area=>area.area);
+    const interpretacao=notaDez===null?'A leitura ou a chave histórica está incompleta; não há nota válida para este boletim. Confira as pendências antes de emiti-lo.':
+      `O estudante obteve ${score.total_acertos} acertos em ${simulado.total_questoes} questões, equivalente à nota ${notaDez.toLocaleString('pt-BR',{minimumFractionDigits:2})} de 10${provisional?' (provisória)':''}. `+
+      (best===null?'Configure intervalos por área para comparar os desempenhos. ':`A maior nota entre as áreas com questões foi ${best.toLocaleString('pt-BR',{minimumFractionDigits:2})}, em ${bestNames.join(', ')}. `)+
+      `${score.total_brancos} ${score.total_brancos===1?'resposta em branco':'respostas em branco'} e ${score.total_rasuras} ${score.total_rasuras===1?'marcação dupla':'marcações duplas'} não pontuam e permanecem no total. Confira as questões indicadas nas prioridades de revisão.`;
     const report: StudentReport = {resultado_id: id, simulado_id: simulado.id, titulo: simulado.titulo, matricula: resultado.matricula,
-      nome: contact?.nome || `Aluno ${resultado.matricula}`, email: contact?.email || null, total_questoes: simulado.total_questoes,
-      status: resultado.status, geral: score, temas: resultado.desempenho_temas, areas: areasFromThemes(resultado.desempenho_temas, resultado.status),
+      nome: contact?.nome || `Aluno ${resultado.matricula}`, email: contact?.email || null, curso: contact?.curso || '', total_questoes: simulado.total_questoes,
+      status: resultado.status, geral: score, nota_geral_dez:notaDez, temas: resultado.desempenho_temas, areas, questoes, prioridades, interpretacao,
       redacao, gerado_em: new Date().toISOString(), apto_envio: !pending.length, pendencias: pending, avisos: warnings,
-      modelo: 'provisorio', metodologia: 'Desempenho objetivo = acertos / questões da área × 100. Este boletim não calcula a TRI do ENEM. A redação é avaliada manualmente pelo professor.', content_hash: ''};
+      modelo: 'boletim_individual_v2', metodologia: 'Nota objetiva = acertos / total de questões × 10. Brancos e duplas não pontuam e permanecem no denominador; não há anulação oficial de questões. Este boletim não calcula a TRI do ENEM. Redação: avaliação manual de 0 a 1000.', content_hash: ''};
     // Include the source answers/key and all visible fields, but not the generation timestamp.
     const {gerado_em, content_hash, ...stable} = report;
     report.content_hash = sha256(JSON.stringify({report: {...stable, redacao: {nota_redacao: redacao.nota_redacao, feedback_redacao: redacao.feedback_redacao}}, respostas: resultado.respostas_detectadas, gabarito: resultado.gabarito_do_envio, institution: INSTITUTION()}));
@@ -131,61 +152,7 @@ export class ReportsService {
   }
   async pdf(reportOrId: number | StudentReport): Promise<Buffer> {
     const report = typeof reportOrId === 'number' ? await this.report(reportOrId) : reportOrId;
-    return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({size: 'A4', margin: 46, bufferPages: true, info: {Title: `Boletim - ${plain(report.titulo)}`, Author: plain(INSTITUTION())}});
-      doc.registerFont('ReportRegular', assetPath('report-fonts/OpenSans-Regular.ttf'));
-      doc.registerFont('ReportBold', assetPath('report-fonts/OpenSans-Bold.ttf'));
-      const buffers: Buffer[] = []; doc.on('data', buffer => buffers.push(buffer)); doc.on('end', () => resolve(Buffer.concat(buffers))); doc.on('error', reject);
-      const width = doc.page.width - 92;
-      const ensure = (height: number) => { if (doc.y + height > doc.page.height - 70) doc.addPage(); };
-      const paragraph = (text: string, size = 10, color = '#475569') => {
-        doc.font('ReportRegular').fontSize(size).fillColor(color);
-        const height = doc.heightOfString(plain(text), {width}); ensure(height + 12);
-        doc.text(plain(text), 46, doc.y, {width, lineGap: 3}).moveDown(.55);
-      };
-      const heading = (text: string) => { ensure(34); doc.font('ReportBold').fontSize(12).fillColor('#172033').text(plain(text), 46, doc.y, {width}).moveDown(.6); };
-      doc.rect(0, 0, doc.page.width, 12).fill('#2563eb');
-      paragraph(INSTITUTION(), 10, '#2563eb');
-      doc.font('ReportBold').fontSize(25).fillColor('#172033').text('Boletim do aluno', {width}).moveDown(.35);
-      paragraph(report.titulo, 13, '#172033');
-      paragraph(`${report.nome}\nMatrícula: ${report.matricula}`, 11, '#172033');
-      paragraph('Modelo provisório - aguardando o modelo final do boletim.', 9);
-      heading('Desempenho geral');
-      const failed = report.status === 'ERRO_LEITURA', provisional = report.status === 'ALERTA_REVISAO';
-      paragraph(failed ? 'Leitura pendente - sem nota válida.' : `${report.geral.nota_percentual}%${provisional ? ' (provisório)' : ''} - ${report.geral.total_acertos} de ${report.total_questoes} questões corretas.`, 16, '#2563eb');
-      if (!failed) paragraph(`Erros: ${report.geral.total_erros}  |  Em branco: ${report.geral.total_brancos}  |  Marcações duplas: ${report.geral.total_rasuras}  |  Incertas: ${report.geral.total_incertas}`, 9);
-      heading('Áreas de conhecimento');
-      for (const area of report.areas) {
-        ensure(56);
-        const y = doc.y;
-        doc.font('ReportBold').fontSize(10).fillColor('#172033').text(area.area, 46, y, {width: width - 75});
-        doc.font('ReportRegular').fillColor('#475569').text(area.nota === null ? (area.total_questoes ? 'Pendente' : 'Sem questões') : `${area.nota}%`, 46 + width - 75, y, {width: 75, align: 'right'});
-        doc.roundedRect(46, y + 18, width, 5, 2).fill('#e2e8f0');
-        if (area.nota !== null && area.nota > 0) doc.roundedRect(46, y + 18, width * area.nota / 100, 5, 2).fill('#2563eb');
-        doc.y = y + 29;
-        paragraph(area.total_questoes ? `${area.total_acertos}/${area.total_questoes} acertos - ${area.total_brancos} em branco - ${area.total_rasuras} duplas` : 'Nenhum intervalo foi associado a esta área.', 8);
-      }
-      if (report.temas.length) {
-        heading('Detalhamento por tema');
-        for (const theme of report.temas) paragraph(`${theme.tema}: ${failed ? 'leitura pendente' : `${theme.nota_percentual}% - ${theme.total_acertos}/${theme.total_questoes} acertos`}`, 9);
-      }
-      heading('Redação - avaliação manual');
-      paragraph('Nota: ' + (report.redacao.nota_redacao === null ? 'não informada pelo professor' : report.redacao.nota_redacao + ' / 1000'), 11, '#172033');
-      paragraph(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.', 10);
-      if (report.pendencias.length) { heading('Pendências'); for (const message of report.pendencias) paragraph(message, 9, '#b45309'); }
-      if (report.avisos.length) { heading('Observações'); for (const message of report.avisos) paragraph(message, 9); }
-      paragraph(report.metodologia, 8);
-      const range = doc.bufferedPageRange();
-      for (let i = range.start; i < range.start + range.count; i++) {
-        doc.switchToPage(i); const y = doc.page.height - 42;
-        // Footers sit below the text margin; disable pagination only while drawing them.
-        const bottom = doc.page.margins.bottom; doc.page.margins.bottom = 0;
-        doc.font('ReportRegular').fontSize(8).fillColor('#64748b').text(`Matrícula ${plain(report.matricula)} | Boletim ${report.resultado_id}`, 46, y, {width: width - 55, lineBreak: false});
-        doc.text(`${i + 1}/${range.count}`, 46 + width - 50, y, {width: 50, align: 'right', lineBreak: false});
-        doc.page.margins.bottom = bottom;
-      }
-      doc.end();
-    });
+    return renderReportPdf(report, INSTITUTION());
   }
   async plan(simuladoId: number, rawIds: unknown): Promise<DeliveryPlan> {
     await this.simulados.get(simuladoId);

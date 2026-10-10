@@ -10,7 +10,17 @@ const {PGlite} = packagePath ? await import(pathToFileURL(resolve(packagePath)).
 const db = new PGlite();
 try {
   await db.exec('CREATE ROLE anon; CREATE ROLE authenticated;');
+  await db.exec("CREATE TABLE student_contacts(matricula TEXT PRIMARY KEY,email TEXT NOT NULL,nome TEXT NOT NULL DEFAULT '',atualizado_em TEXT NOT NULL)");
+  await db.query('INSERT INTO student_contacts(matricula,email,nome,atualizado_em) VALUES($1,$2,$3,$4)', ['0000001', 'legacy@example.test', 'Aluno fictício', 'previous-date']);
   await db.exec(await readFile(resolve(root, 'infra/sql/001-schema.sql'), 'utf8'));
+  assert.deepEqual((await db.query('SELECT * FROM student_contacts WHERE matricula=$1', ['0000001'])).rows[0], {
+    matricula: '0000001', email: 'legacy@example.test', nome: 'Aluno fictício', atualizado_em: 'previous-date', curso: '',
+  });
+  await db.query('UPDATE student_contacts SET curso=$1 WHERE matricula=$2', ['Edificações', '0000001']);
+  await db.exec(await readFile(resolve(root, 'infra/sql/001-schema.sql'), 'utf8'));
+  assert.equal((await db.query('SELECT curso FROM student_contacts WHERE matricula=$1', ['0000001'])).rows[0].curso, 'Edificações');
+  await db.query('DELETE FROM student_contacts WHERE matricula=$1', ['0000001']);
+  console.log('PASS: migração legada de curso preserva contato e é idempotente.');
   const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files')");
   assert.equal(tables.rows.length, 9);
   assert.ok(tables.rows.every(row => row.rowsecurity));

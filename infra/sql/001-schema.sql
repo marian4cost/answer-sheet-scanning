@@ -42,8 +42,10 @@ CREATE TABLE IF NOT EXISTS student_contacts (
   matricula TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   nome TEXT NOT NULL DEFAULT '',
+  curso TEXT NOT NULL DEFAULT '',
   atualizado_em TEXT NOT NULL
 );
+ALTER TABLE student_contacts ADD COLUMN IF NOT EXISTS curso TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS report_feedback (
   resultado_id INTEGER PRIMARY KEY REFERENCES core_resultadoaluno(id) ON DELETE CASCADE,
   nota_redacao DOUBLE PRECISION CHECK (nota_redacao IS NULL OR nota_redacao BETWEEN 0 AND 1000),

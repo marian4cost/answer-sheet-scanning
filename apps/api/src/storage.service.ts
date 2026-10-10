@@ -60,6 +60,11 @@ export class StorageService {
     }
     const response = await this.request(`object/authenticated/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encoded}`);
     if (response.status === 404) throw new NotFoundException('Arquivo não encontrado.');
+    // O Storage também devolve HTTP 400 com statusCode 404 para objeto ausente.
+    if (response.status === 400) {
+      const error = await response.json().catch(() => null) as {statusCode?: string | number; error?: string} | null;
+      if (String(error?.statusCode) === '404' && error?.error === 'not_found') throw new NotFoundException('Arquivo não encontrado.');
+    }
     if (!response.ok) throw new InternalServerErrorException('Não foi possível abrir o arquivo privado.');
     return {buffer: await this.boundedBody(response, maxSize), contentType: response.headers.get('Content-Type') || 'application/octet-stream'};
   }

@@ -12,13 +12,13 @@ export function validEmail(value: string): boolean {
     && !value.split('@')[0].startsWith('.') && !value.split('@')[0].endsWith('.') && !value.split('@')[0].includes('..');
 }
 function header(value: string) { return value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
-function contactComparable(value?: StudentContact) { return value ? {matricula: value.matricula, email: value.email, nome: value.nome} : null; }
+function contactComparable(value?: StudentContact) { return value ? {matricula: value.matricula, email: value.email, nome: value.nome, curso: value.curso || ''} : null; }
 @Injectable()
 export class ContactsService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
   async list(): Promise<{contatos: StudentContact[]}> { return {contatos: await this.db.all<StudentContact>('SELECT * FROM student_contacts ORDER BY matricula')}; }
   async get(matricula: string): Promise<StudentContact | undefined> { return this.db.get<StudentContact>('SELECT * FROM student_contacts WHERE matricula=?', matricula); }
-  template(): string { return '\uFEFFmatricula,email,nome\r\n000123,aluno@example.com,Aluno de exemplo\r\n'; }
+  template(): string { return '\uFEFFmatricula,email,nome,curso\r\n000123,aluno@example.com,Aluno de exemplo,Curso de exemplo\r\n'; }
   private async fingerprint(contacts: StudentContact[]) {
     const state = await Promise.all(contacts.map(async contact => contactComparable(await this.get(contact.matricula))));
     return sha256(JSON.stringify(state));
@@ -31,7 +31,7 @@ export class ContactsService {
       const parsed = Papa.parse<unknown[]>(buffer.toString('utf8').replace(/^\uFEFF/, ''), {skipEmptyLines: 'greedy', dynamicTyping: false});
       return {rows: parsed.data, errors: parsed.errors.map(error => 'CSV inválido: ' + error.message)};
     }
-    if (extension !== '.xlsx') throw new BadRequestException('Use uma planilha CSV ou XLSX com matrícula, email e nome opcional.');
+    if (extension !== '.xlsx') throw new BadRequestException('Use uma planilha CSV ou XLSX com matrícula, email e nome/curso opcionais.');
     const book = new ExcelJS.Workbook();
     try { await book.xlsx.load(buffer as unknown as Parameters<typeof book.xlsx.load>[0]); }
     catch { throw new BadRequestException('Não foi possível abrir a planilha XLSX.'); }
@@ -53,8 +53,8 @@ export class ContactsService {
     if (parsed.rows.length < 2) errors.push('Inclua o cabeçalho e pelo menos um contato.');
     if (parsed.rows.length > 10001) throw new BadRequestException('A planilha aceita até 10.000 contatos.');
     const headers = (parsed.rows[0] || []).map(value => typeof value === 'string' ? header(value) : '');
-    const matriculaIndex = headers.indexOf('matricula'), emailIndex = headers.indexOf('email'), nameIndex = headers.indexOf('nome');
-    if (matriculaIndex < 0 || emailIndex < 0) errors.push('As colunas obrigatórias são matricula e email. A coluna nome é opcional.');
+    const matriculaIndex = headers.indexOf('matricula'), emailIndex = headers.indexOf('email'), nameIndex = headers.indexOf('nome'), courseIndex = headers.indexOf('curso');
+    if (matriculaIndex < 0 || emailIndex < 0) errors.push('As colunas obrigatórias são matricula e email. Nome e curso são opcionais.');
     if (new Set(headers.filter(Boolean)).size !== headers.filter(Boolean).length) errors.push('O cabeçalho contém colunas repetidas.');
     const contacts: StudentContact[] = [], seen = new Set<string>();
     if (matriculaIndex >= 0 && emailIndex >= 0) for (let i = 1; i < parsed.rows.length; i++) {
@@ -64,16 +64,19 @@ export class ContactsService {
       if (typeof rawMatricula !== 'string') { errors.push(prefix + 'a matrícula precisa estar como texto. No Excel, use o formato Texto para preservar zeros iniciais.'); continue; }
       const matricula = rawMatricula.trim(), email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
       const nome = rawName === null || rawName === undefined ? '' : typeof rawName === 'string' ? rawName.trim() : '';
+      const rawCourse = courseIndex >= 0 ? row[courseIndex] : '', curso = rawCourse === null || rawCourse === undefined ? '' : typeof rawCourse === 'string' ? rawCourse.trim() : '';
       if (!matricula || matricula.length > 100 || /[\r\n\x00-\x1f]/.test(matricula)) { errors.push(prefix + 'matrícula inválida (até 100 caracteres, sem quebras de linha).'); continue; }
       if (!validEmail(email)) { errors.push(prefix + 'email inválido.'); continue; }
-      if ((rawName && typeof rawName !== 'string') || nome.length > 150 || /[\r\n\x00-\x1f]/.test(nome)) { errors.push(prefix + 'nome inválido (até 150 caracteres).'); continue; }
+      if ((rawName !== null && rawName !== undefined && typeof rawName !== 'string') || nome.length > 150 || /[\r\n\x00-\x1f]/.test(nome)) { errors.push(prefix + 'nome inválido (até 150 caracteres).'); continue; }
+      if ((rawCourse !== null && rawCourse !== undefined && typeof rawCourse !== 'string') || curso.length > 150 || /[\r\n\x00-\x1f]/.test(curso)) { errors.push(prefix + 'curso inválido (até 150 caracteres).'); continue; }
       if (seen.has(matricula)) { errors.push(prefix + `matrícula ${matricula} repetida. Mantenha apenas uma linha por matrícula.`); continue; }
-      seen.add(matricula); contacts.push({matricula, email, nome});
+      seen.add(matricula); contacts.push({matricula, email, nome, curso});
     }
     const old = new Map((await this.list()).contatos.map(value => [value.matricula, value]));
     for (const contact of contacts) {
       const before = old.get(contact.matricula);
-      if (before && (before.email !== contact.email || before.nome !== contact.nome)) warnings.push(`Matrícula ${contact.matricula}: contato existente será atualizado (${before.email} → ${contact.email}).`);
+      if (courseIndex < 0) contact.curso = before?.curso || '';
+      if (before && (before.email !== contact.email || before.nome !== contact.nome || (before.curso || '') !== contact.curso)) warnings.push(`Matrícula ${contact.matricula}: contato existente será atualizado. Confira email, nome e curso na tabela (${before.email} → ${contact.email}).`);
     }
     const token = randomBytes(32).toString('base64url'), now = new Date(), expiry = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
     // Store only validated previews. Invalid files cannot be partially imported.
@@ -89,8 +92,8 @@ export class ContactsService {
       const plan = JSON.parse(saved.payload) as {contacts: StudentContact[]; fingerprint: string};
       if (plan.fingerprint !== await this.fingerprint(plan.contacts)) throw new BadRequestException('Os contatos mudaram após a prévia. Envie a planilha novamente para revisar as alterações.');
       const now = new Date().toISOString();
-      for (const contact of plan.contacts) await this.db.run(`INSERT INTO student_contacts(matricula,email,nome,atualizado_em) VALUES(?,?,?,?)
-        ON CONFLICT(matricula) DO UPDATE SET email=excluded.email,nome=excluded.nome,atualizado_em=excluded.atualizado_em`, contact.matricula, contact.email, contact.nome, now);
+      for (const contact of plan.contacts) await this.db.run(`INSERT INTO student_contacts(matricula,email,nome,curso,atualizado_em) VALUES(?,?,?,?,?)
+        ON CONFLICT(matricula) DO UPDATE SET email=excluded.email,nome=excluded.nome,curso=excluded.curso,atualizado_em=excluded.atualizado_em`, contact.matricula, contact.email, contact.nome, contact.curso || '', now);
       await this.db.run('DELETE FROM contacts_import_plans WHERE token_hash=?', sha256(token));
       return {message: `${plan.contacts.length} contatos importados.`, total: plan.contacts.length};
     });

@@ -4,6 +4,9 @@ export const PROJECT_ROOT = resolve(__dirname, '../../..');
 dotenv({ path: resolve(PROJECT_ROOT, '.env'), quiet: true });
 export const DATABASE_URL = process.env.DATABASE_URL || '';
 export const DATABASE_SSL = process.env.DATABASE_SSL === 'true';
+// A CA do provedor permite validar a cadeia TLS sem desativar rejectUnauthorized.
+export const DATABASE_SSL_CA = process.env.DATABASE_SSL_CA_BASE64
+  ? Buffer.from(process.env.DATABASE_SSL_CA_BASE64, 'base64').toString('utf8') : '';
 export const API_HOST = process.env.API_HOST || '127.0.0.1';
 export const OMR_REMOTE_URL = process.env.OMR_REMOTE_URL || '';
 export const OMR_REMOTE_SECRET = process.env.OMR_REMOTE_SECRET || '';

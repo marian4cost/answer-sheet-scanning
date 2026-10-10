@@ -45,6 +45,52 @@ test('SQLite interface assíncrona guarda matrícula com zeros e resultados ante
   } finally { await f.close(); }
 });
 
+test('SQLite legado acrescenta curso sem alterar contato nem zeros da matrícula', async () => {
+  const {DatabaseSync} = require('node:sqlite');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'enem-db-course-migration-'));
+  const previousUrl = config.DATABASE_URL, previousPath = config.DATABASE_PATH;
+  const file = path.join(dir, 'legacy.sqlite');
+  const legacy = new DatabaseSync(file);
+  legacy.exec("CREATE TABLE student_contacts(matricula TEXT PRIMARY KEY,email TEXT NOT NULL,nome TEXT NOT NULL DEFAULT '',atualizado_em TEXT NOT NULL)");
+  legacy.prepare('INSERT INTO student_contacts(matricula,email,nome,atualizado_em) VALUES(?,?,?,?)').run('0000123', 'fixture@example.test', 'Aluno fictício', 'previous-date');
+  legacy.close();
+  config.DATABASE_URL = ''; config.DATABASE_PATH = file;
+  const db = new DatabaseService();
+  try {
+    assert.deepEqual({...await db.get('SELECT * FROM student_contacts WHERE matricula=?', '0000123')}, {
+      matricula: '0000123', email: 'fixture@example.test', nome: 'Aluno fictício', atualizado_em: 'previous-date', curso: '',
+    });
+    await db.run('UPDATE student_contacts SET curso=? WHERE matricula=?', 'Edificações', '0000123');
+    assert.equal((await db.get('SELECT * FROM student_contacts WHERE matricula=?', '0000123')).curso, 'Edificações');
+  } finally {
+    await db.onModuleDestroy(); config.DATABASE_URL = previousUrl; config.DATABASE_PATH = previousPath;
+    await fs.rm(dir, {recursive: true, force: true});
+  }
+});
+
+test('PostgreSQL usa CA explícita e verifica TLS, com pool unitário na Vercel', async () => {
+  const pg = require('pg');
+  const original = pg.Pool, previousUrl = config.DATABASE_URL, previousSsl = config.DATABASE_SSL;
+  const previousCa = config.DATABASE_SSL_CA, previousVercel = process.env.VERCEL;
+  let options;
+  class FakePool {
+    constructor(value) { options = value; }
+    async connect() { return {query: async () => ({rows: [], rowCount: 0}), release() {}}; }
+    async end() {}
+  }
+  pg.Pool = FakePool; config.DATABASE_URL = 'postgres://fixture.invalid/tls'; config.DATABASE_SSL = true;
+  config.DATABASE_SSL_CA = 'fixture trusted CA'; process.env.VERCEL = '1';
+  const db = new DatabaseService();
+  try {
+    await db.onModuleInit();
+    assert.deepEqual(options.ssl, {rejectUnauthorized: true, ca: 'fixture trusted CA'});
+    assert.equal(options.max, 1);
+  } finally {
+    await db.onModuleDestroy(); pg.Pool = original; config.DATABASE_URL = previousUrl; config.DATABASE_SSL = previousSsl; config.DATABASE_SSL_CA = previousCa;
+    if (previousVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = previousVercel;
+  }
+});
+
 test('SQLite rollback reverte todas as escritas e não contamina leitura concorrente', async () => {
   const f = await fixture();
   const entered = deferred(), release = deferred();
