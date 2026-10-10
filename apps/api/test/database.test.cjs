@@ -20,6 +20,21 @@ test('placeholders PostgreSQL preservam valores e literais com ponto de interrog
   assert.equal(postgresPlaceholders('SELECT $$?$$, $code$?$code$, ?'), 'SELECT $$?$$, $code$?$code$, $1');
 });
 
+test('Vercel sem DATABASE_URL falha antes de criar um banco SQLite local', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'enem-cloud-db-test-'));
+  const previousVercel = process.env.VERCEL;
+  const previousUrl = config.DATABASE_URL, previousPath = config.DATABASE_PATH;
+  process.env.VERCEL = '1'; config.DATABASE_URL = ''; config.DATABASE_PATH = path.join(dir, 'never-created.sqlite');
+  try {
+    assert.throws(() => new DatabaseService(), /Configure DATABASE_URL/);
+    await assert.rejects(fs.access(config.DATABASE_PATH), {code: 'ENOENT'});
+  } finally {
+    if (previousVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = previousVercel;
+    config.DATABASE_URL = previousUrl; config.DATABASE_PATH = previousPath;
+    await fs.rm(dir, {recursive: true, force: true});
+  }
+});
+
 test('SQLite interface assíncrona guarda matrícula com zeros e resultados anteriores', async () => {
   const f = await fixture();
   try {
@@ -149,4 +164,72 @@ test('PostgreSQL rollback usa o mesmo client e libera conexão após falha', asy
     await assert.rejects(db.transaction(async () => { await db.run('UPDATE core_simulado SET titulo=? WHERE id=?', 'test', 1); throw new Error('planned rollback'); }), /planned rollback/);
     assert.deepEqual(calls, ['BEGIN', 'UPDATE core_simulado SET titulo=$1 WHERE id=$2', 'ROLLBACK', 'RELEASE']);
   } finally { await db.onModuleDestroy(); pg.Pool = original; config.DATABASE_URL = ''; }
+});
+
+test('cold start aguarda PostgreSQL, fecha pool em falha e tenta uma nova instância na próxima requisição', async () => {
+  require('reflect-metadata');
+  const pg = require('pg');
+  const {Module} = require('@nestjs/common');
+  const {NestFactory} = require('@nestjs/core');
+  const bootstrap = require('../dist/bootstrap');
+  const originalPool = pg.Pool, originalCreateApplication = bootstrap.createApplication;
+  const originalUrl = config.DATABASE_URL, originalSSL = config.DATABASE_SSL;
+  const pools = [], contexts = [];
+  const originalSignalListeners = process.listenerCount('SIGTERM');
+  let attempts = 0, handled = 0, closed = 0;
+  class FakePool {
+    ended = 0;
+    constructor() { pools.push(this); }
+    async connect() {
+      if (++attempts === 1) throw new Error('planned unavailable database');
+      return {query: async () => ({rows: [{ok: 1}], rowCount: 1}), release() {}};
+    }
+    async query() { return {rows: [{ok: 1}], rowCount: 1}; }
+    async end() { this.ended++; }
+  }
+  class TestModule {}
+  Module({providers: [DatabaseService]})(TestModule);
+  pg.Pool = FakePool;
+  config.DATABASE_URL = 'postgres://fixture.invalid/cold-start';
+  config.DATABASE_SSL = false;
+  bootstrap.createApplication = async () => {
+    const context = await NestFactory.create(TestModule, {logger: false, abortOnError: false});
+    contexts.push(context);
+    context.enableShutdownHooks(['SIGTERM']);
+    return {init: () => context.init(), close: async () => { closed++; await context.close(); }, getHttpAdapter: () => ({getInstance: () => (_req, res) => {
+      handled++; res.status(200).json({ok: true});
+    }})};
+  };
+  const serverlessPath = require.resolve('../dist/serverless');
+  delete require.cache[serverlessPath];
+  const {serverlessHandler} = require(serverlessPath);
+  const response = () => ({code: null, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; }});
+  try {
+    const first = response(), concurrent = response();
+    await Promise.all([serverlessHandler({}, first), serverlessHandler({}, concurrent)]);
+    assert.equal(first.code, 503);
+    assert.equal(concurrent.code, 503);
+    assert.deepEqual(first.body, {message: 'O serviço está temporariamente indisponível.'});
+    assert.equal(handled, 0);
+    assert.equal(pools.length, 1);
+    assert.equal(pools[0].ended, 1);
+    assert.equal(closed, 1);
+    assert.equal(process.listenerCount('SIGTERM'), originalSignalListeners);
+    const second = response();
+    await serverlessHandler({}, second);
+    assert.equal(second.code, 200);
+    assert.equal(handled, 1);
+    assert.equal(pools.length, 2);
+    assert.equal((await contexts[1].get(DatabaseService).health()).ok, true);
+    await contexts[1].close();
+    assert.equal(pools[1].ended, 1);
+    assert.equal(pools[0].ended, 1);
+    assert.equal(process.listenerCount('SIGTERM'), originalSignalListeners);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    bootstrap.createApplication = originalCreateApplication;
+    pg.Pool = originalPool;
+    config.DATABASE_URL = originalUrl; config.DATABASE_SSL = originalSSL;
+    delete require.cache[serverlessPath];
+  }
 });

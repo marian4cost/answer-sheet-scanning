@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -46,20 +46,26 @@ export function postgresPlaceholders(sql: string): string {
 }
 
 @Injectable()
-export class DatabaseService implements OnModuleDestroy {
+export class DatabaseService implements OnModuleDestroy, OnModuleInit {
   private readonly sqlite?: DatabaseSync;
   private readonly pool?: Pool;
   private readonly context = new AsyncLocalStorage<TransactionContext>();
   private sqliteQueue: Promise<void> = Promise.resolve();
   private readonly ready: Promise<void>;
+  private poolShutdown?: Promise<void>;
   readonly dialect: 'postgres' | 'sqlite';
 
   constructor() {
+    if (process.env.VERCEL && !DATABASE_URL) throw new Error('Configure DATABASE_URL para executar a API na Vercel.');
     this.dialect = DATABASE_URL ? 'postgres' : 'sqlite';
     if (DATABASE_URL) {
       this.pool = new Pool({connectionString: DATABASE_URL, max: 5, connectionTimeoutMillis: 10_000,
         idleTimeoutMillis: 30_000, ...(DATABASE_SSL ? {ssl: {rejectUnauthorized: true}} : {})});
-      this.ready = this.initializePostgres();
+      this.ready = this.initializePostgres().catch(async error => {
+        // Um cold start rejeitado não pode deixar um pool/instância inutilizável vivo.
+        await this.closePool().catch(() => {});
+        throw error;
+      });
       // Guarda a rejeição até a primeira operação/startup para evitar unhandled rejection.
       void this.ready.catch(() => {});
     } else {
@@ -68,6 +74,10 @@ export class DatabaseService implements OnModuleDestroy {
       this.initializeSqlite();
       this.ready = Promise.resolve();
     }
+  }
+  async onModuleInit() { await this.ready; }
+  private closePool(): Promise<void> {
+    return this.poolShutdown ??= this.pool ? this.pool.end() : Promise.resolve();
   }
   private async initializePostgres() {
     const client = await this.pool!.connect();
@@ -195,7 +205,7 @@ export class DatabaseService implements OnModuleDestroy {
   async health() { await this.get('SELECT 1 AS ok'); return {ok: true, dialect: this.dialect}; }
   async onModuleDestroy() {
     await this.ready.catch(() => {});
-    if (this.pool) await this.pool.end();
+    if (this.pool) await this.closePool();
     if (this.sqlite) await this.sqliteLock(() => this.sqlite!.close());
   }
 }
