@@ -26,9 +26,9 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     const band = () => {doc.rect(0,0,doc.page.width,43).fill(NAVY);text(institution,left,12,width,10,'#ffffff',true);};
     const newPage = () => {doc.addPage();band();y=64;};
     const ensure = (required: number) => {if (y + required > bottom) newPage();};
-    const heading = (title: string, following = 10) => {ensure(25+following);text(title,left,y,width,12,NAVY,true);y+=25;};
+    const heading = (title: string, following = 10) => {ensure(22+following);text(title,left,y,width,12,NAVY,true);y+=22;};
     const boxParagraph = (value: string, fill: string, border: string, size = 9) => {
-      const h=height(value,width-18,size)+18; ensure(h+10);doc.rect(left,y,width,h).fillAndStroke(fill,border);text(value,left+9,y+8,width-18,size);y+=h+16;
+      const h=height(value,width-18,size)+18; ensure(h+10);doc.rect(left,y,width,h).fillAndStroke(fill,border);text(value,left+9,y+8,width-18,size);y+=h+12;
     };
     const paragraph = (value: string, size = 9, color = INK) => {
       // Split into lines before flowing, including long teacher feedback, so pages never clip.
@@ -54,17 +54,17 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     };
     band();
     text('BOLETIM INDIVIDUAL',left,y,width,9,BLUE,true);y+=17;
-    const nameHeight=height(report.nome,width,20,true);text(report.nome,left,y,width,20,NAVY,true);y+=nameHeight+17;
+    const nameHeight=height(report.nome,width,20,true);text(report.nome,left,y,width,20,NAVY,true);y+=nameHeight+12;
     const meta=[['MATRÍCULA',report.matricula],['CURSO',report.curso || 'Não informado'],['AVALIAÇÃO',report.titulo]];
     const metaW=width/3, valueHeight=Math.max(...meta.map(([,v])=>height(v,metaW-12,9)));
     meta.forEach(([label,value],i)=>{const x=left+i*metaW;doc.rect(x,y,metaW,20).fillAndStroke('#f2f5f8',LINE);doc.rect(x,y+20,metaW,valueHeight+14).stroke(LINE);text(label,x+6,y+5,metaW-12,8,NAVY,true);text(value,x+6,y+26,metaW-12);});
-    y+=valueHeight+49;
+    y+=valueHeight+43;
     heading('Resumo de desempenho');
     const cards=[...report.areas.map((area,i)=>({label:area.area,value:area.nota_dez,detail:area.total_questoes?`${area.total_acertos} acertos em ${area.total_questoes} questões`:'Sem questões nesta avaliação',color:AREA_COLORS[i]})),{label:'Resultado geral',value:report.nota_geral_dez,detail:`${report.geral.total_acertos} acertos em ${report.total_questoes} questões`,color:NAVY}];
-    const gap=10,cardW=(width-gap*2)/3,cardH=73;
+    const gap=10,cardW=(width-gap*2)/3,cardH=68;
     ensure(cardH*2+gap+15);
-    cards.forEach((card,i)=>{const x=left+(i%3)*(cardW+gap),top=y+Math.floor(i/3)*(cardH+gap);doc.rect(x,top,cardW,cardH).stroke(LINE);doc.rect(x,top,cardW,3).fill(card.color);text(card.label.toLocaleUpperCase('pt-BR'),x+8,top+9,cardW-16,7.8,NAVY,true);text(card.value===null && card.label!=='Resultado geral' && card.detail.startsWith('Sem')?'Sem questões':note(card.value)+(card.value===null?'':' / 10'),x+8,top+31,cardW-16,card.value===null?11:17,INK);text(card.detail,x+8,top+57,cardW-16,6.8,MUTED);});
-    y+=cardH*2+gap+18;
+    cards.forEach((card,i)=>{const x=left+(i%3)*(cardW+gap),top=y+Math.floor(i/3)*(cardH+gap);doc.rect(x,top,cardW,cardH).stroke(LINE);doc.rect(x,top,cardW,3).fill(card.color);text(card.label.toLocaleUpperCase('pt-BR'),x+8,top+9,cardW-16,7.8,NAVY,true);text(card.value===null && card.label!=='Resultado geral' && card.detail.startsWith('Sem')?'Sem questões':note(card.value)+(card.value===null?'':' / 10'),x+8,top+28,cardW-16,card.value===null?11:17,INK);text(card.detail,x+8,top+54,cardW-16,6.8,MUTED);});
+    y+=cardH*2+gap+12;
     if (report.status==='ALERTA_REVISAO') paragraph('Nota provisória: existem respostas incertas que precisam ser revistas antes do envio.',8,'#9a6700');
     heading('Leitura do resultado',height(report.interpretacao,width-18,8.5)+28);boxParagraph(report.interpretacao,'#edf4ff','#bcd3ff',8.5);
     heading('Prioridades de revisão');
@@ -74,9 +74,9 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     for (let i=0;i<priorities.length;i+=2) {
       const row=priorities.slice(i,i+2).map(p=>({title:p.area,body:[p.incorretas.length?`Incorretas: ${p.incorretas.join(', ')}.`:'',p.brancos.length?`Em branco: ${p.brancos.join(', ')}.`:'',p.duplas.length?`Duplas: ${p.duplas.join(', ')}.`:'',p.incertas.length?`Incertas: ${p.incertas.join(', ')}.`:''].filter(Boolean).join(' ')}));
       const h=Math.max(...row.map(p=>height(p.body,priorityW-14,7.8)+height(p.title,priorityW-14,8,true)))+21;
-      ensure(h+9);row.forEach((p,index)=>{const x=left+index*(priorityW+gap);doc.rect(x,y,priorityW,h).fillAndStroke('#f8fafc',LINE);text(p.title,x+7,y+6,priorityW-14,8,NAVY,true);text(p.body,x+7,y+height(p.title,priorityW-14,8,true)+10,priorityW-14,7.8);});y+=h+9;
+      ensure(h+6);row.forEach((p,index)=>{const x=left+index*(priorityW+gap);doc.rect(x,y,priorityW,h).fillAndStroke('#f8fafc',LINE);text(p.title,x+7,y+6,priorityW-14,8,NAVY,true);text(p.body,x+7,y+height(p.title,priorityW-14,8,true)+10,priorityW-14,7.8);});y+=h+6;
     }
-    y+=8;heading('Critério de correção',height(report.metodologia,width-18,7.5)+28);
+    y+=4;heading('Critério de correção',height(report.metodologia,width-18,7.5)+28);
     boxParagraph(report.metodologia,'#fff5df','#e9cf90',7.5);
     if (report.pendencias.length) {heading('Pendências');for (const p of report.pendencias) paragraph(p,8,'#9a6700');}
     if (report.avisos.length) {heading('Observações');for (const p of report.avisos) paragraph(p,8,MUTED);}

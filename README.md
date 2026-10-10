@@ -115,7 +115,9 @@ Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/aut
 
 ## Publicação Vercel e Supabase
 
-Use **três projetos Vercel do mesmo repositório**. Os itens abaixo são configuração; substitua por URLs/credenciais da sua conta. Este arquivo não declara uma publicação ativa.
+Publicação verificada em 10/10/2026: [interface](https://enem-leitor-web.vercel.app), [health da API](https://enem-leitor-api.vercel.app/api/health) e processador Python em `https://enem-leitor-omr.vercel.app/api/omr`. A interface exige acesso de professor; o processador recebe apenas chamadas autenticadas da API. O código está no [repositório privado](https://github.com/GenissonEmilio/enem-leitor).
+
+Use **três projetos Vercel do mesmo repositório**. Para reproduzir a instalação em outra conta, substitua URLs e credenciais nas configurações abaixo.
 
 | Projeto | Root Directory | Build/entrada |
 | --- | --- | --- |
@@ -180,6 +182,8 @@ Exige `STORAGE_MODE=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e buc
 O SQLite não é modificado. IDs, notas, respostas, matrículas e snapshots são preservados; conflitos abortam em vez de sobrescrever. Tabelas são gravadas em transação PostgreSQL. Arquivos já copiados podem permanecer no Storage se uma etapa posterior falhar; uma repetição confere conteúdo antes de reutilizá-los. Não publique banco, contatos, provas, backups ou credenciais no Git.
 
 Confira a cópia independentemente, incluindo SHA-256 dos espelhos, com `node scripts/verify-postgres-migration.mjs`. O certificado configurado também é usado pelos scripts de migração e verificação.
+
+A migração de 10/10/2026 conservou **4 simulados, 4 lotes, 19 resultados e 19 espelhos**, conferidos campo a campo e por SHA-256. O SQLite original e o backup permanecem locais e fora do Git. O fluxo publicado foi validado com provas fictícias de 50/60 questões, incluindo uma mesma prova corrigida com duas chaves, snapshots históricos e persistência após novo deployment. SMTP/Resend dos boletins ainda precisa ser configurado; os testes não enviam mensagens a alunos.
 
 ## Testes e evidências
 
