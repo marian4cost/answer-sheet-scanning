@@ -1,0 +1,37 @@
+venv/
+.venv/
+**/venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+db.sqlite3.backup-*
+media/
+*.log
+logs/
+node_modules/
+**/.next/
+**/dist/
+*.tsbuildinfo
+.env
+backups/
+
+# Dados e documentos privados locais
+.env.*
+!.env.example
+.vercel/
+**/.vercel/
+python/tests/fixtures/
+python/tests/local_fixtures/
+legacy/
+artifacts/
+*.sqlite3
+*.sqlite3-*
+*.db
+output/
+apps/api/assets/schema.sql
+
+# Cartões anteriores e credenciais adicionais não fazem parte do código publicado.
+sample_pdfs/
+*.pem
+*.key
+credentials*.json

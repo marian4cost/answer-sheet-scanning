@@ -1,0 +1,4 @@
+{
+  "functions": {"api/omr.py": {"maxDuration": 300, "excludeFiles": "{tests/**,sample_sheets.py,__pycache__/**}"}},
+  "rewrites": [{"source": "/:path*", "destination": "/api/omr"}]
+}

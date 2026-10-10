@@ -1,0 +1,139 @@
+OMR ENEM READER - NEXT.JS, NESTJS E OPENCV
+Guia atualizado em 10/10/2026. README.md é a documentação principal.
+
+INICIAR LOCALMENTE
+  Requisitos: Node.js 22.23+ e Python 3.12+.
+  Na raiz:
+    npm ci
+    python3 -m venv venv
+    venv/bin/python -m pip install -r python/requirements.txt
+    npm run build
+    npm start
+  Abra http://localhost:3000.
+  ./run_server.sh também inicia; Ctrl+C encerra.
+  Desenvolvimento: npm run dev.
+  PDF usa pypdfium2/PDFium. Não é necessário instalar Poppler ou Django.
+
+CONFIGURAÇÃO
+  .env.example descreve os valores locais e a configuração em nuvem.
+  Copie-o para .env apenas se .env ainda não existir. Preserve os valores de
+  um arquivo existente. Não publique segredos, banco ou documentos de alunos.
+  DATABASE_URL vazia: SQLite em db.sqlite3. Preenchida: PostgreSQL.
+  Padrão local: media/, venv/bin/python e portas web 3000/API 3001.
+  AUTH_ENABLED=false é apenas para o uso local em loopback.
+  Recompile após mudar API_BASE_URL ou portas para produção.
+
+GABARITO E PROVAS
+  De 50 a 60 questões, A a E, duas colunas numeradas de cima para baixo.
+  50 = 25+25; 55 = 28+27; 60 = 30+30. Em ímpares, esquerda tem uma linha a mais.
+  Cadastre título e total, leia a folha do professor e confira as alternativas
+  antes de salvar, ou digite a chave. O oficial exige uma alternativa A a E
+  por questão; branco, dupla ou leitura incerta precisam ser corrigidos.
+  Grade e tinta são medidas na própria folha; a chave compara respostas
+  depois da leitura. Veja JUSTIFICATIVAS_OPENCV.txt.
+  Formatos: PDF, JPG/JPEG, PNG, WEBP, BMP e TIFF; 20 MB/arquivo, 50 por envio.
+  Um cartão/arquivo; em PDF, primeira página. Fotos: EXIF e 40 megapixels.
+  Confira Matrícula de cada arquivo antes de enviar. O nome do arquivo só
+  preenche inicialmente esse campo. Não há OCR de matrícula ou nome.
+  Os novos envios se somam aos anteriores. Reenvios mantêm correções distintas
+  no histórico. Cada envio guarda a chave usada na nota.
+  Na nuvem, upload assinado direto ao Storage privado e correção em lotes de
+  até três provas por chamada. Lotes concluídos são preservados se houver falha.
+
+TEMAS E RESULTADOS
+  Informe De/Até/Tema; limites inclusivos, sem sobreposição.
+  Ex.: 1-22 Linguagens, 25-30 Ciências da Natureza. Lacunas ficam Sem tema.
+  Faixas distintas com o mesmo nome têm desempenho agrupado.
+  Nota geral continua; abas mostram nota e contagens de cada tema.
+  Excel inclui respostas, nota geral, mapeamento e abas por tema.
+  Nota objetiva = acertos/questões x100, duas casas decimais. Não calcula TRI.
+  BNK: branco; RAS: dupla anulada; INC: revisão. ERRO_LEITURA não inventa brancos.
+  Incertas e falhas não entram na média confirmada nem podem ser enviadas
+  como boletins. Alterar chave atual não muda a correção histórica.
+  Exclusão exige confirmação; remove dados vinculados do simulado.
+
+CONTATOS, REDAÇÃO E BOLETINS
+  Contatos: CSV/XLSX, uma aba, até 2 MB/10.000 contatos.
+  Colunas: matricula, email, nome opcional. Use matrícula em formato Texto
+  no Excel, preservando zeros: 000123 é diferente de 123.
+  Baixe o modelo em Contatos. Veja a prévia e confirme antes de importar.
+  Erros ou matrículas duplicadas bloqueiam a gravação parcial.
+  Boletins mostram Linguagens, Ciências da Natureza, Matemática, Ciências
+  Humanas e temas cadastrados. Áreas sem faixas não recebem nota inventada.
+  Redação é manual: nota opcional 0-1000 e feedback até 10.000 caracteres,
+  salvos por prova. O PDF é provisório, aguardando o modelo final.
+  Instituição padrão: Instituto Federal de Sergipe - Campus Lagarto.
+  REPORT_INSTITUTION permite configurá-la.
+  Selecione boletins, revise destinatários/PDFs e confirme o envio.
+  Importar contatos ou salvar redação não dispara emails.
+  Planos duram 15 minutos e são invalidados se contato/conteúdo mudar.
+  Entregas repetidas são impedidas. Sem confirmação, confira histórico e
+  provedor; o sistema não dispara reenvio automático.
+
+EMAIL OPCIONAL
+  Configure EMAIL_FROM e SMTP_HOST/SMTP_PORT/SMTP_SECURE/SMTP_USER/SMTP_PASS,
+  ou EMAIL_FROM e RESEND_API_KEY. Resend tem precedência quando configurado.
+  SMTP_FROM é alternativa a EMAIL_FROM. Use remetente autorizado pelo provedor.
+  SMTP padrão: 587 com TLS; 465 ou SMTP_SECURE=true usa TLS desde a conexão.
+  Credenciais só no servidor. Não use NEXT_PUBLIC_* para segredos.
+  Email de boletim é separado do email de login Supabase Auth.
+
+LOGIN DO PROFESSOR
+  API: AUTH_ENABLED=true, SUPABASE_URL, SUPABASE_ANON_KEY e TEACHER_EMAILS
+  (allowlist de emails exatos separados por vírgula).
+  No Supabase Auth, habilite email e ajuste Magic Link para mostrar
+  {{ .Token }} (ou {{.Token}}). Confira o template para contas novas.
+  A tela /login pede o código. Fora da allowlist não se pode solicitar OTP.
+  Cookie: HttpOnly, SameSite=Lax, seguro na nuvem, até uma hora.
+  Vercel sempre exige autenticação; configuração ausente bloqueia dados.
+
+PUBLICAÇÃO
+  Três projetos do mesmo repositório na Vercel:
+    apps/web - Next.js; build npm run build -w @enem/web.
+    apps/api - NestJS; configuração apps/api/vercel.json.
+    python   - função api/omr.py; configuração python/vercel.json.
+  Habilite arquivos fora do Root Directory nos workspaces Node.
+  Supabase: infra/sql/001-schema.sql, RLS sem policies públicas para alunos
+  e bucket privado omr-private.
+  API: DATABASE_URL, DATABASE_SSL=true, STORAGE_MODE=supabase, chaves Supabase
+  de servidor, autenticação/allowlist, OMR_REMOTE_URL e OMR_REMOTE_SECRET.
+  Python: SUPABASE_URL, SUPABASE_STORAGE_BUCKET e o mesmo OMR_REMOTE_SECRET.
+  Web: API_BASE_URL = URL real da API sem /api e sem barra final.
+  API: CORS_ORIGINS ou WEB_URL com origens exatas autorizadas da interface.
+  Preserve assets/** no pacote da API (schema e fontes do PDF).
+  README.md detalha variáveis e smoke tests. URLs devem ser conferidas na conta
+  real; este guia não afirma que existe um deploy ativo.
+
+MIGRAR SQLITE PARA POSTGRESQL
+  Faça backup do banco e media/. Configure o destino no ambiente do comando.
+    npm run build -w @enem/api
+    node scripts/migrate-postgres.mjs
+  Para copiar também os espelhos referenciados:
+    node scripts/migrate-postgres.mjs --include-media
+  Exige STORAGE_MODE=supabase e Storage privado configurado.
+  MIGRATION_MEDIA_ROOT indica a pasta original; padrão media/.
+  SQLite não é modificado. IDs, notas, respostas e snapshots são preservados.
+  Conflitos abortam sem sobrescrever. Mídia inclui espelhos referenciados,
+  não todos os arquivos da pasta. Veja detalhes no README.md.
+
+VERIFICAR
+    npm test
+    npm run typecheck
+    npm run build
+    node scripts/test-postgres-schema.mjs
+    PYTHONPATH=python venv/bin/python python/tests/benchmark.py artifacts/omr-benchmark
+  Benchmark: 154 cartões, 8.475 rótulos, zero alternativas erradas e zero
+  abstenções extras. A marca deliberadamente parcial permaneceu INC.
+  Resultado dos casos medidos, não garantia para toda foto ou formulário.
+  Fotos pessoais ficam locais/ignoradas pelo Git. CI usa cartões sem dados
+  pessoais; testes não enviam emails reais.
+
+ESTRUTURA
+  apps/web          interface Next.js
+  apps/api          NestJS, banco, comparação, Excel, boletins e acesso
+  packages/shared   contratos TypeScript
+  python/omr        leitura e decodificação
+  python/worker.py  processamento local
+  python/api/omr.py processamento remoto autenticado
+  infra/sql         PostgreSQL e RLS
+  legacy/django     referência local, fora da execução e do Git

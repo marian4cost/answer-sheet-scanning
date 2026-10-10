@@ -1,0 +1,48 @@
+'use client';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { ArrowLeft, CheckCircle2, X, LoaderCircle, AlertCircle, Inbox, ClipboardCheck } from 'lucide-react';
+import type { ReadingStatus } from '@enem/shared';
+
+const NoticeContext = createContext<(message: string, kind?: 'success' | 'error') => void>(() => {});
+export function NoticeProvider({children}: {children: ReactNode}) {
+  const [notice, setNotice] = useState<{message: string; kind: string} | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 9000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  return <NoticeContext.Provider value={(message, kind = 'success') => setNotice({message, kind})}>
+    {children}
+    {notice && <div className={`toast ${notice.kind}`} role="status"><CheckCircle2 size={20}/><span>{notice.message}</span><button type="button" onClick={() => setNotice(null)} aria-label="Fechar aviso"><X size={18}/></button></div>}
+  </NoticeContext.Provider>;
+}
+export const useNotice = () => useContext(NoticeContext);
+export function Brand() {
+  return <Link href="/" className="brand"><span className="brand-mark"><ClipboardCheck size={24}/></span><span>OMR <span className="brand-accent">Enem</span> Reader</span></Link>;
+}
+export function BackLink({href = '/', children = 'Voltar ao dashboard'}: {href?: string; children?: ReactNode}) {
+  return <Link className="back-link" href={href}><ArrowLeft size={16}/>{children}</Link>;
+}
+export function Alert({children, kind = 'info'}: {children: ReactNode; kind?: 'info' | 'error' | 'warning' | 'success'}) {
+  return <div className={`alert ${kind}`} role={kind === 'error' ? 'alert' : 'status'}><AlertCircle size={19}/><div>{children}</div></div>;
+}
+export function Loading({text = 'Carregando...'}: {text?: string}) {
+  return <div className="loading" role="status"><LoaderCircle className="spin" size={26}/><span>{text}</span></div>;
+}
+export function Empty({children}: {children: ReactNode}) {
+  return <div className="empty"><Inbox size={34}/><p>{children}</p></div>;
+}
+export function Badge({status}: {status: ReadingStatus}) {
+  const labels = {SUCESSO: 'Sucesso', ALERTA_RASURA: 'Marcação dupla', ALERTA_REVISAO: 'Revisão necessária', ERRO_LEITURA: 'Erro de leitura'};
+  return <span className={`status ${status.toLowerCase()}`}>{labels[status]}</span>;
+}
+export function Modal({title, children, onClose}: {title: string; children: ReactNode; onClose: () => void}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { ref.current?.showModal(); }, []);
+  return <dialog ref={ref} className="modal" onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <header className="modal-header"><h2>{title}</h2><button className="icon-button" type="button" onClick={onClose} aria-label="Fechar espelho"><X/></button></header>
+    {children}
+  </dialog>;
+}

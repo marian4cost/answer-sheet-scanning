@@ -1,0 +1,27 @@
+{
+  "name": "enem-leitor",
+  "version": "2.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @enem/api && npm run build -w @enem/web",
+    "dev": "node scripts/run.mjs --dev",
+    "start": "node scripts/run.mjs",
+    "test": "npm run test -w @enem/api && venv/bin/python -m unittest discover -s python/tests -v",
+    "typecheck": "npm run typecheck -w @enem/api && npm run typecheck -w @enem/web"
+  },
+  "engines": {
+    "node": ">=22.23.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

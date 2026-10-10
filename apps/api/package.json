@@ -1,0 +1,36 @@
+{
+  "name": "@enem/api",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node ../../scripts/prepare-api.mjs && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "npm run build && node --test test/*.test.cjs"
+  },
+  "dependencies": {
+    "@enem/shared": "*",
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
+    "@supabase/supabase-js": "^2.117.3",
+    "dotenv": "^17.2.3",
+    "exceljs": "4.4.0",
+    "nodemailer": "^10.1.0",
+    "papaparse": "^5.7.0",
+    "pdfkit": "^0.20.2",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/papaparse": "^5.5.2",
+    "@types/pdfkit": "^0.17.6",
+    "@types/pg": "^8.23.1",
+    "typescript": "^5.9.0"
+  }
+}

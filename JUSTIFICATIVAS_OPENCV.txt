@@ -1,0 +1,115 @@
+LEITOR OMR — REVISÃO DE 10/10/2026
+
+ESCOPO
+50 a 60 questões (qualquer inteiro nesse intervalo), A a E, duas colunas
+numeradas de cima para baixo; em totais ímpares, a esquerda tem uma linha a
+mais. Aceita o cartão impresso ( A ) ... ( E ) e o modelo de bolhas com quatro
+marcadores compatíveis. Não promete reconhecer qualquer formulário arbitrário.
+
+O QUE CAUSAVA O PROBLEMA
+O código anterior não consultava a chave para escolher a alternativa. Porém,
+a localização pressupunha margens/larguras derivadas de uma única foto e o
+mesmo limiar absoluto de tinta para todas as letras. A folha vazia de 60
+questões enviada nesta revisão produzia 22 INC: letras B/D impressas já tinham
+mais tinta que o limite 0,50. O antigo gerador de testes recortava linhas da
+mesma foto; isso repetia suas características e não testava a generalização.
+A quantidade também podia ser inferida do tamanho da chave. Agora a quantidade
+é um parâmetro explícito, independente da chave; o padrão é 50.
+
+ALTERAÇÕES E MOTIVOS
+1. Colunas pela geometria observada.
+   A separação usa o maior vão entre as posições horizontais das linhas
+   candidatas. Saem posições x fixas e a pressuposição sobre a margem inferior.
+   A grade deve ter duas séries completas com espaçamento regular. Conferem-se
+   linhas adjacentes para não aceitar só 25 de 30 linhas e perder as últimas.
+   Folha cortada, quantidade divergente ou grade não validada gera ERRO_LEITURA,
+   nunca cinquenta respostas em branco inventadas.
+
+2. Coordenadas pelas letras/marcações reais.
+   Dilatação horizontal junta partes de cada linha apenas para localização.
+   O interior de cada alternativa é localizado por componentes conexos: letras
+   e bolhas têm largura diferente dos parênteses estreitos. Cinco posições com
+   passo regular refinam a estimativa inicial de tamanho. Caracteres e tinta
+   refinam o centro de cada célula, reduzindo erro por fonte, escala e alinhamento.
+   A validação de orientação impede aceitar uma folha de cabeça para baixo como
+   uma grade correta; rotação de 90/180/270 graus e EXIF continuam tratados.
+
+3. Registro de perspectiva independente do professor.
+   A homografia usa as extremidades das primeiras/últimas linhas das duas
+   colunas da própria imagem. Inclinação é medida pelos contornos das linhas.
+   Não há comparação da aparência de respostas para achar a grade, nem registro
+   contra a única foto de um professor. Assim, um cartão inteiro em branco tem
+   exatamente as mesmas âncoras estruturais que um cartão preenchido.
+
+4. Normalização da luz e cobertura de tinta.
+   Divide-se o cinza pelo fundo gaussiano para compensar sombra gradual. Otsu
+   separa tinta/fundo; limiar adaptativo serve de alternativa se a localização
+   falhar. A tinta é medida no interior elíptico das opções, sem dilatação.
+   Uma suavização de 3 pixels integra a cobertura e reduz a sensibilidade de
+   um único pixel ao redimensionar letras finas. Nenhum filtro recupera uma foto
+   desfocada a ponto de perder tinta.
+
+5. Calibração na própria folha, por coluna e alternativa.
+   O percentil inferior das densidades estima como uma letra não preenchida
+   aparece naquela fonte/foto. A referência é por A/B/C/D/E: um B impresso não
+   é uma marca só porque contém mais tinta que um C. Um teto derivado das duas
+   opções menos preenchidas impede aprender uma coluna inteira com respostas A
+   como se A fosse vazio. Nenhuma chave ou lista de respostas entra na calibração.
+   Uma opção confirmada precisa excesso de cobertura >=0,20 e densidade >=0,50;
+   excesso intermediário >=0,14 e densidade >=0,40 solicita revisão (INC).
+   São critérios de engenharia explícitos, não um modelo de IA nem porcentagens
+   de certeza. Duas opções confirmadas são RAS; ausência de tinta adicional é BNK.
+   O modelo de bolhas com marcadores mantém sua medição interior específica.
+
+6. Metadados auditáveis.
+   O retorno conserva respostas_detectadas, status, densidades e layout e
+   acrescenta calibracao (referência de tinta por célula) e qualidade_questoes
+   (estado, excesso_tinta, margem_tinta, revisar). Margem é diferença entre
+   excessos de tinta; NÃO é probabilidade estatística. O espelho usa contornos
+   para preservar a marca original. A chave só colore esse espelho. Notas,
+   comparação com professor e persistência pertencem ao NestJS.
+
+7. PDF sem instalação de Poppler.
+   pypdfium2/PDFium rasteriza somente a primeira página, limita o maior lado
+   a 3200 pixels antes de alocar a imagem, fecha recursos explicitamente e
+   serializa chamadas PDFium entre threads. Processos Python separados podem
+   continuar paralelos. A wheel é pequena e não depende de binário pdftoppm
+   instalado no sistema, permitindo o mesmo leitor local e no serviço em nuvem.
+   Fotos aplicam EXIF, transparência sobre papel branco e limite de 40 megapixels.
+   Documentação de referência: https://pypdfium2.readthedocs.io/en/stable/python_api.html
+
+TESTES E REPRODUÇÃO
+python/tests/variable_cards.py agora desenha fontes vetoriais e tinta via Pillow,
+sem importar o leitor, recortar fotos ou consultar a chave oficial. Cada caso
+possui truth explícito. Sementes randomizadas produzem chaves diferentes, e
+cartões totalmente brancos/A/B/C/D/E/duplas exercitam casos extremos.
+
+python/tests/benchmark.py gera 154 casos independentes e 8.475 questões: totais
+50/55/60, 3 sementes, brancos, duplas, tinta parcial, rotação ±4 graus, sombra, perspectiva,
+ruído, desfoque leve, tinta azul, rabiscos, 4 tamanhos de fonte e mudanças de margens.
+Cada PNG possui um JSON de verdade e metrics.json conserva todas as divergências.
+A métrica distingue uma alternativa errada de uma abstenção INC para revisão.
+Resultado desta execução: 154 cartões exatos, 8.475 rótulos corretos, zero
+alternativas erradas e zero abstenções extras. O caso deliberadamente parcial
+permaneceu INC. Não é uma estimativa de precisão em toda a população de provas.
+
+Execute:
+  PYTHONPATH=python ./venv/bin/python python/tests/benchmark.py artifacts/omr-benchmark
+  ./venv/bin/python -m unittest discover -s python/tests -p test_omr.py -v
+
+As 3 fotos anteriores de 50 questões e 7 novas de 60 têm transcrição visual nos testes
+locais: 570 rótulos no total. Verificam-se as duplas 1/16/27, os 8 brancos das fotos
+parciais e os 60 brancos da foto vazia. Fotos pessoais ficam ignoradas pelo Git;
+CI usa só imagens geradas. Testes passam chave correta, chave divergente e
+nenhuma chave e exigem respostas/densidades/calibração idênticas. Há um teste
+específico que troca o tamanho da chave sem alterar a quantidade da leitura.
+
+LIMITES OBJETIVOS
+Rasuras parcialmente apagadas, caneta muito fraca, borrões que unem alternativas,
+grande perspectiva, recortes ou baixa resolução podem solicitar INC ou erro de
+localização. A detecção não distingue intenção de apagamento: o professor deve
+conferir essas marcações. O simulado suporta o formulário de duas colunas
+especificado; um layout diferente exige reconhecimento próprio. O leitor não
+faz OCR de nome/matrícula, que continuam associados no fluxo da aplicação.
+Os números do ensaio reprodutível são divulgados separadamente no relatório
+python/tests/benchmark_metrics.json e nos artefatos locais, incluindo revisões.

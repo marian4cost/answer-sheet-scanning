@@ -1,0 +1,1103 @@
+{
+  "engine": "printed-geometry-calibrated-v2",
+  "cases": 154,
+  "questions": 8475,
+  "correct_labels": 8475,
+  "incorrect_labels": 0,
+  "review_abstentions": 0,
+  "exact_cards": 154,
+  "label_accuracy": 1.0,
+  "confirmed_label_accuracy": 1.0,
+  "seconds": 66.15,
+  "confusion_counts": {
+    "C->C": 1580,
+    "B->B": 1565,
+    "E->E": 1399,
+    "BNK->BNK": 639,
+    "A->A": 1273,
+    "D->D": 1451,
+    "RAS->RAS": 567,
+    "INC->INC": 1
+  },
+  "records": [
+    {
+      "case": "50-seed19-base",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-rotation-4",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-rotation4",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-perspective",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-shadow",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-noise",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-blur",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed19-blue",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-base",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-rotation-4",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-rotation4",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-perspective",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-shadow",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-noise",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-blur",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed71-blue",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-base",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-rotation-4",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-rotation4",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-perspective",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-shadow",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-noise",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-blur",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-seed211-blue",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allBNK-base",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allBNK-shadow",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allBNK-perspective",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allA-base",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allA-shadow",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allA-perspective",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allB-base",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allB-shadow",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allB-perspective",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allC-base",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allC-shadow",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allC-perspective",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allD-base",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allD-shadow",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allD-perspective",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allE-base",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allE-shadow",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allE-perspective",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allRAS-base",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allRAS-shadow",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-allRAS-perspective",
+      "questions": 50,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-font19",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-font24",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-font27",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-position350",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-position650",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "50-scribbles",
+      "questions": 50,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-base",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-rotation-4",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-rotation4",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-perspective",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-shadow",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-noise",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-blur",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed19-blue",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-base",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-rotation-4",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-rotation4",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-perspective",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-shadow",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-noise",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-blur",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed71-blue",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-base",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-rotation-4",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-rotation4",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-perspective",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-shadow",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-noise",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-blur",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-seed211-blue",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allBNK-base",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allBNK-shadow",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allBNK-perspective",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allA-base",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allA-shadow",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allA-perspective",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allB-base",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allB-shadow",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allB-perspective",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allC-base",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allC-shadow",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allC-perspective",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allD-base",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allD-shadow",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allD-perspective",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allE-base",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allE-shadow",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allE-perspective",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allRAS-base",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allRAS-shadow",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-allRAS-perspective",
+      "questions": 55,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-font19",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-font24",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-font27",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-position350",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-position650",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "55-scribbles",
+      "questions": 55,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-base",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-rotation-4",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-rotation4",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-perspective",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-shadow",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-noise",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-blur",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed19-blue",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-base",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-rotation-4",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-rotation4",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-perspective",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-shadow",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-noise",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-blur",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed71-blue",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-base",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-rotation-4",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-rotation4",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-perspective",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-shadow",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-noise",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-blur",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-seed211-blue",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allBNK-base",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allBNK-shadow",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allBNK-perspective",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allA-base",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allA-shadow",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allA-perspective",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allB-base",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allB-shadow",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allB-perspective",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allC-base",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allC-shadow",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allC-perspective",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allD-base",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allD-shadow",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allD-perspective",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allE-base",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allE-shadow",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allE-perspective",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allRAS-base",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allRAS-shadow",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-allRAS-perspective",
+      "questions": 60,
+      "status": "ALERTA_RASURA",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-font19",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-font24",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-font27",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-position350",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-position650",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-scribbles",
+      "questions": 60,
+      "status": "SUCESSO",
+      "mismatches": [],
+      "reading_error": ""
+    },
+    {
+      "case": "60-partial-ink",
+      "questions": 60,
+      "status": "ALERTA_REVISAO",
+      "mismatches": [],
+      "reading_error": ""
+    }
+  ],
+  "scope": "Synthetic measured fixtures; this result is not a population accuracy estimate."
+}
