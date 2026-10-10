@@ -91,9 +91,13 @@ Os testes simulam os provedores, sem enviar emails reais. Email de **boletim** �
 
 Na Vercel, a API exige autenticação mesmo com `AUTH_ENABLED=false`. Sem configuração válida, o acesso aos dados fica bloqueado.
 
-1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_ENABLED=true` e `TEACHER_EMAILS` na API. A allowlist contém emails exatos separados por vírgula; a comparação ignora caixa.
-2. Habilite email no Supabase Auth. Ajuste o template **Magic Link** para mostrar **`{{ .Token }}`** (ou `{{.Token}}`): a interface recebe código OTP, não um link. Para contas novas, confira também o template de confirmação de cadastro.
-3. Configure o endereço da interface nas URLs do Supabase e o serviço de email do Auth conforme sua conta.
+1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_ENABLED=true`, `TEACHER_EMAILS` e `WEB_URL` na API. A allowlist contém emails exatos separados por vírgula; a comparação ignora caixa. `WEB_URL` é a origem real da interface, sem barra final.
+2. Habilite email no Supabase Auth e configure **Site URL** com a interface e a URL de redirecionamento autorizada da interface terminada em `/login`. O login aceita o **link mágico do template padrão**, sem exigir editar o template.
+3. Na tela `/login`, peça acesso e clique no link recebido. O Supabase retorna à interface; o NestJS valida o token e a permissão do professor antes de criar a sessão. O fragmento com token é removido da barra de endereço e não é persistido em localStorage.
+
+O SMTP padrão do Supabase permite testes apenas com emails de **membros da equipe do projeto/organização**, não com toda a allowlist da aplicação. A documentação consultada em 10/10/2026 informa limite de **2 mensagens por hora**, sujeito a alteração. Para acesso dos demais professores, configure SMTP próprio no **Supabase Auth**, separadamente do provedor de boletins. [Restrições oficiais do SMTP padrão](https://supabase.com/docs/guides/auth/auth-smtp).
+
+**OTP opcional:** se o template da sua conta puder ser editado e você preferir código, inclua **`{{ .Token }}`** (ou `{{.Token}}`) no template Magic Link e confira o template de cadastro de contas novas. A interface também aceita esse código. A edição não é necessária para usar o link padrão.
 
 Exemplo de template:
 
@@ -103,7 +107,7 @@ Exemplo de template:
 <p><strong>{{ .Token }}</strong></p>
 ```
 
-A tela `/login` solicita o código; o NestJS valida a sessão no Supabase antes de criar cookie `HttpOnly`, `SameSite=Lax`, seguro na nuvem, até uma hora. Fora da allowlist não é permitido solicitar OTP pela aplicação. Sessões com `app_metadata.role=teacher` validado pelo Supabase também são reconhecidas, mas o fluxo de login por código desta interface exige a allowlist. `user_metadata` editável pelo usuário não concede acesso de professor.
+A sessão usa cookie `HttpOnly`, `SameSite=Lax`, seguro na nuvem, até uma hora. Contas fora da allowlist não podem solicitar acesso por email pela aplicação; um link válido de conta sem permissão também é bloqueado. Sessões com `app_metadata.role=teacher` validado pelo Supabase são reconhecidas, mas a solicitação de email nesta interface exige a allowlist. `user_metadata` editável pelo usuário não concede acesso de professor.
 
 Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/auth/auth-email-templates) e [login por email e OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless).
 
@@ -137,11 +141,12 @@ OMR_REMOTE_URL              URL HTTPS do Python terminada em /api/omr
 OMR_REMOTE_SECRET           segredo aleatório longo, igual ao do Python
 AUTH_ENABLED=true
 TEACHER_EMAILS              emails autorizados separados por vírgula
+WEB_URL                     origem da interface usada no callback /login
 CORS_ORIGINS                origens HTTPS exatas da interface, separadas por vírgula
 REPORT_INSTITUTION          instituição do boletim
 ```
 
-`WEB_URL` é alternativa a `CORS_ORIGINS` para uma origem. Use origens sem barra final e apenas domínios de produção/preview autorizados. Adicione variáveis de email somente para habilitar boletins.
+`WEB_URL` também serve como alternativa a `CORS_ORIGINS` quando há uma origem. Se estiver ausente, o callback de login usa a primeira origem de `CORS_ORIGINS`. Use origens sem barra final e apenas domínios de produção/preview autorizados. Adicione variáveis de email somente para habilitar boletins.
 
 **Interface:** `API_BASE_URL` = URL HTTPS da API **sem `/api` e sem barra final**. As rewrites encaminham chamadas; senha de banco, chave de serviço e segredo OMR não são enviados ao navegador.
 

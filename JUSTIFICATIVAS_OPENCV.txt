@@ -113,3 +113,37 @@ especificado; um layout diferente exige reconhecimento próprio. O leitor não
 faz OCR de nome/matrícula, que continuam associados no fluxo da aplicação.
 Os números do ensaio reprodutível são divulgados separadamente no relatório
 python/tests/benchmark_metrics.json e nos artefatos locais, incluindo revisões.
+
+PORTABILIDADE DO ENSAIO ENTRE FEDORA E UBUNTU/CI
+O primeiro CI revelou uma diferença no renderizador de testes: faltava o
+caminho /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf, utilizado
+pelo pacote Ubuntu fonts-liberation. A seleção caía em DejaVuSans. Nessa fonte,
+'( A )' a 21 px mede 44,08 px; o antigo passo 43 px desenhava os parênteses
+sobrepostos, produzindo um formulário fisicamente inválido. A falha foi
+reproduzida localmente com a fonte DejaVu oficial.
+
+A correção fica no gerador, não nas respostas/limiares do leitor. O passo é
+uma distância mínima e passa a considerar a largura do maior rótulo + 6 px de
+separação. Marcações declaradas sólidas cobrem o glifo segundo suas dimensões
+reais, em vez de um pequeno disco derivado somente do tamanho nominal da fonte.
+A faixa deliberadamente parcial usa a altura real do glifo, evitando coincidir
+com a barra já impressa de uma letra B de outra fonte. O truth continua
+independente e inalterado. OMR_TEST_FONT permite forçar outra fonte nos testes.
+
+Revalidação: 154 cartões / 8.475 rótulos com Liberation Sans 2.1.5 e outros 154 cartões / 8.475
+rótulos com DejaVu Sans 2.37; zero divergências em ambos os ensaios, incluindo INC
+proposital. A integração Nest inteira (28 testes) também passou com DejaVu
+explicitamente forçada. Novos testes exercitam letras impressas vazias,
+marcação aleatória, duplas e tamanhos 19/21/27 em fontes disponíveis e na fonte
+embutida do Pillow. Cada relatório agora informa família, estilo e hash da fonte usada.
+Para repetir o perfil Liberation atual no Ubuntu, instale fonts-liberation2.
+A versão legado Liberation 1.07.4 também foi inspecionada, mas apresentou
+erros de localização em 2 casos de perspectiva e não pertence aos dois
+ensaios integralmente aprovados. O relatório não generaliza para essa versão.
+
+Reproduza uma fonte explicitamente:
+  OMR_TEST_FONT=/caminho/DejaVuSans.ttf PYTHONPATH=python ./venv/bin/python python/tests/benchmark.py artifacts/omr-outra-fonte
+
+Relatórios versionáveis sem dados pessoais:
+  python/tests/benchmark_metrics.json
+  python/tests/benchmark_dejavu_metrics.json

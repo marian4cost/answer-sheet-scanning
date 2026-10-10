@@ -11,6 +11,7 @@ import { OmrService } from './omr.service';
 import { ExportService } from './export.service';
 import { MEDIA_ROOT, MAX_FILE_SIZE, ALLOWED_EXTENSIONS, STORAGE_MODE } from './config';
 import { questionCount } from './question-config';
+import { DatabaseService } from './database.service';
 
 const uploadOptions: MulterOptions = {
   storage: diskStorage({destination: join(MEDIA_ROOT, '.staging'), filename: (_req, file, done) => done(null, randomUUID() + extname(file.originalname).toLowerCase())}),
@@ -24,8 +25,9 @@ const uploadOptions: MulterOptions = {
 @Controller()
 export class AppController {
   constructor(@Inject(SimuladosService) private readonly simulados: SimuladosService,
-    @Inject(OmrService) private readonly omr: OmrService, @Inject(ExportService) private readonly exporter: ExportService) {}
-  @Get('health') async health() { return {backend: 'NestJS', processor: await this.omr.health()}; }
+    @Inject(OmrService) private readonly omr: OmrService, @Inject(ExportService) private readonly exporter: ExportService,
+    @Inject(DatabaseService) private readonly db: DatabaseService) {}
+  @Get('health') async health() { await this.db.health(); return {backend: 'NestJS', database: 'ok', processor: await this.omr.health()}; }
   @Get('config') config() { return {private_uploads: STORAGE_MODE === 'supabase', min_questoes: 50, max_questoes: 60}; }
   @Post('leituras/gabarito') @UseInterceptors(FileInterceptor('gabarito_pdf', uploadOptions))
   async preview(@UploadedFile() file: Express.Multer.File | undefined, @Body('total_questoes') count: unknown) {

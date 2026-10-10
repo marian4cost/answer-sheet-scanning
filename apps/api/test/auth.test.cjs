@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 process.env.SUPABASE_URL = 'https://example.supabase.co';
 process.env.SUPABASE_ANON_KEY = 'mock-only-anon-key';
 const {AuthService,authRequired,teacherAllowed,requestToken} = require('../dist/auth.js');
-const envNames = ['AUTH_ENABLED','VERCEL','TEACHER_EMAILS','SUPABASE_ANON_KEY'];
+const envNames = ['AUTH_ENABLED','VERCEL','TEACHER_EMAILS','SUPABASE_ANON_KEY','WEB_URL','CORS_ORIGINS'];
 let saved;
-beforeEach(() => {saved=Object.fromEntries(envNames.map(key=>[key,process.env[key]]));process.env.AUTH_ENABLED='true';delete process.env.VERCEL;process.env.TEACHER_EMAILS='teacher@example.com, SECOND@example.com';process.env.SUPABASE_ANON_KEY='mock-only-anon-key';});
+beforeEach(() => {saved=Object.fromEntries(envNames.map(key=>[key,process.env[key]]));process.env.AUTH_ENABLED='true';delete process.env.VERCEL;process.env.TEACHER_EMAILS='teacher@example.com, SECOND@example.com';process.env.SUPABASE_ANON_KEY='mock-only-anon-key';process.env.WEB_URL='';process.env.CORS_ORIGINS='';});
 afterEach(() => {for(const key of envNames) if(saved[key]===undefined) delete process.env[key];else process.env[key]=saved[key];});
 function request({method='GET',path='/api/simulados',headers={}}={}) {return {method,path,headers,get(name){return headers[name.toLowerCase()];}};}
 function response() {return {statusCode:200,body:null,headers:{},cookies:[],cleared:[],status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},setHeader(key,value){this.headers[key]=value;},cookie(...args){this.cookies.push(args);},clearCookie(...args){this.cleared.push(args);}};}
@@ -40,7 +40,7 @@ test('middleware bloqueia contatos, boletins, PDFs e imagens sem token antes de 
 });
 test('somente rotas públicas de autenticação/health e OPTIONS passam sem sessão',async(t)=>{
   const calls=provider(t,{email:'teacher@example.com'});const auth=new AuthService();
-  for(const path of ['/api/health','/api/auth/config','/api/auth/codigo','/api/auth/login','/api/auth/logout']) assert.equal((await middleware(auth,request({path}))).nextCalls,1,path);
+  for(const path of ['/api/health','/api/auth/config','/api/auth/codigo','/api/auth/login','/api/auth/session','/api/auth/logout']) assert.equal((await middleware(auth,request({path}))).nextCalls,1,path);
   assert.equal((await middleware(auth,request({method:'OPTIONS'}))).nextCalls,1);
   assert.equal((await middleware(auth,request({path:'/api/auth/login/extra'}))).statusCode,401);assert.equal(calls.length,0);
 });
@@ -96,4 +96,28 @@ test('login não cria sessão se a verificação do código falha ou retorna con
 });
 test('logout limpa o mesmo cookie com proteção de transporte e sem divulgar token',()=>{
   const res=response();assert.deepEqual(new AuthService().logout(res),{ok:true});assert.equal(res.cleared[0][0],'enem_session');assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
+});
+test('pedido de link mágico usa callback /login da interface configurada e mantém allowlist',async(t)=>{
+  process.env.WEB_URL='https://frontend.example.com/';const calls=provider(t,{});
+  const result=await new AuthService().requestCode('TEACHER@EXAMPLE.COM');
+  const url=new URL(calls[0].url);assert.equal(url.pathname,'/auth/v1/otp');assert.equal(url.searchParams.get('redirect_to'),'https://frontend.example.com/login');
+  assert.match(result.message,/link de acesso/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:'teacher@example.com',create_user:true});
+  delete process.env.WEB_URL;process.env.CORS_ORIGINS='https://fallback.example.com,https://preview.example.com';
+  await new AuthService().requestCode('teacher@example.com');assert.equal(new URL(calls[1].url).searchParams.get('redirect_to'),'https://fallback.example.com/login');
+});
+test('sessão de link mágico valida professor no Supabase antes de criar cookie e não retorna token',async(t)=>{
+  const calls=provider(t,{email:'teacher@example.com'}),res=response();
+  const result=await new AuthService().session('mock-magic-link-token',res);
+  assert.deepEqual(result,{email:'teacher@example.com'});assert.equal(calls[0].options.headers.Authorization,'Bearer mock-magic-link-token');assert.match(calls[0].url,/\/user$/);
+  assert.equal(res.cookies.length,1);const [name,token,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(token,'mock-magic-link-token');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
+  assert.doesNotMatch(JSON.stringify(result),/mock-magic-link-token/);
+});
+test('sessão de link mágico recusa token inválido, expirado ou de aluno sem criar cookie',async(t)=>{
+  const calls=provider(t,{email:'student@example.com'}),auth=new AuthService(),res=response();
+  await assert.rejects(auth.session(null,res),error=>error.getStatus()===400);
+  await assert.rejects(auth.session('',res),error=>error.getStatus()===401);
+  await assert.rejects(auth.session('x'.repeat(8001),res),error=>error.getStatus()===401);assert.equal(calls.length,0);
+  await assert.rejects(auth.session('mock-student-token',res),error=>error.getStatus()===403);assert.equal(res.cookies.length,0);
+  t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({error:'expired JWT'}),{status:401}));
+  await assert.rejects(auth.session('mock-expired-token',res),error=>error.getStatus()===401);assert.equal(res.cookies.length,0);
 });

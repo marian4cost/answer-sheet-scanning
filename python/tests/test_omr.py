@@ -15,7 +15,7 @@ from omr.engine import process_image, classify_densities, detect_fiducial_marker
 from omr.pdf_loader import load_image_or_pdf
 from omr.validation import validate_file
 from sample_sheets import generate_answer_sheet
-from variable_cards import printed_card, degrade
+from variable_cards import printed_card, degrade, FONT_CANDIDATES
 from benchmark import cases
 
 FIXTURES = Path(__file__).parent / 'fixtures'
@@ -74,6 +74,30 @@ class OMRTests(unittest.TestCase):
                         self.assertTrue(r['qualidade_questoes'][q]['revisar'])
                     else:
                         self.assertEqual(detected[q], answer)
+
+    def test_font_portability_keeps_labels_separate_and_truth_independent(self):
+        fonts = ['builtin', *[path for path in FONT_CANDIDATES if Path(path).is_file()]]
+        for font_path in fonts:
+            for count in (50, 60):
+                for size, requested_step in ((19, 38), (21, 43), (27, 55)):
+                    with self.subTest(font=font_path, count=count, size=size):
+                        rng = np.random.default_rng(count + size)
+                        truth = {str(q): str(rng.choice(list('ABCDE'))) for q in range(1, count + 1)}
+                        truth['8'], truth['17'] = 'BNK', 'RAS'
+                        image, _ = printed_card(count, truth, font_size=size, step=requested_step, font_path=font_path)
+                        result = self.read_card(image, count)
+                        self.assertEqual(result['respostas_detectadas'], truth, result['erro_msg'])
+
+    def test_empty_cards_keep_printed_letters_unmarked_across_fonts(self):
+        fonts = ['builtin', *[path for path in FONT_CANDIDATES if Path(path).is_file()]]
+        for font_path in fonts:
+            for count in (50, 60):
+                with self.subTest(font=font_path, count=count):
+                    truth = dict.fromkeys(map(str, range(1, count + 1)), 'BNK')
+                    image, _ = printed_card(count, truth, font_path=font_path)
+                    result = self.read_card(image, count)
+                    self.assertEqual(result['respostas_detectadas'], truth, result['erro_msg'])
+                    self.assertEqual(result['status'], 'SUCESSO')
 
     def test_every_integer_question_count_from_fifty_to_sixty(self):
         for count in range(50, 61):

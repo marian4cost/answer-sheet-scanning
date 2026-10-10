@@ -5,6 +5,7 @@ Não calibra limiares com a chave: as chaves só são usadas DEPOIS da leitura.
 """
 from pathlib import Path
 import json
+import hashlib
 import sys
 import time
 import cv2
@@ -13,7 +14,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from omr.engine import process_image
-from variable_cards import printed_card, degrade
+from variable_cards import printed_card, degrade, _font
 
 
 def cases():
@@ -72,7 +73,10 @@ def run(output):
                         'reading_error': result['erro_msg']})
     total = sum(r['questions'] for r in records)
     wrong = sum(len(r['mismatches']) for r in records)
-    summary = {'engine': 'printed-geometry-calibrated-v2', 'cases': len(records), 'questions': total,
+    font = _font(21)
+    font_path = getattr(font, 'path', None)
+    font_hash = hashlib.sha256(Path(font_path).read_bytes()).hexdigest() if isinstance(font_path, (str, Path)) else None
+    summary = {'engine': 'printed-geometry-calibrated-v2', 'renderer_font': {'family': font.getname()[0], 'style': font.getname()[1], 'sha256': font_hash}, 'cases': len(records), 'questions': total,
                'correct_labels': total - wrong, 'incorrect_labels': wrong - review_count, 'review_abstentions': review_count, 'exact_cards': sum(not r['mismatches'] for r in records),
                'label_accuracy': (total - wrong) / total, 'confirmed_label_accuracy': (total - wrong) / (total - review_count), 'seconds': round(time.monotonic() - started, 2),
                'confusion_counts': confusions, 'records': records,

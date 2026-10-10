@@ -79,11 +79,18 @@ EMAIL OPCIONAL
   Email de boletim é separado do email de login Supabase Auth.
 
 LOGIN DO PROFESSOR
-  API: AUTH_ENABLED=true, SUPABASE_URL, SUPABASE_ANON_KEY e TEACHER_EMAILS
+  API: AUTH_ENABLED=true, SUPABASE_URL, SUPABASE_ANON_KEY, WEB_URL e TEACHER_EMAILS
   (allowlist de emails exatos separados por vírgula).
-  No Supabase Auth, habilite email e ajuste Magic Link para mostrar
-  {{ .Token }} (ou {{.Token}}). Confira o template para contas novas.
-  A tela /login pede o código. Fora da allowlist não se pode solicitar OTP.
+  No Supabase Auth, habilite email, configure Site URL e autorize o callback
+  da interface terminado em /login. O link mágico padrão já funciona.
+  Na tela /login, peça acesso e clique no link recebido. O servidor valida
+  o token e a permissão; o token é removido da URL e não vai ao localStorage.
+  OTP é opcional: inclua {{ .Token }} (ou {{.Token}}) se puder editar o template.
+  Fora da allowlist não se pode pedir acesso por email pela aplicação.
+  SMTP padrão do Supabase Auth só envia para emails da equipe do projeto/
+  organização e tem limites baixos (2/h na consulta de 10/10/2026).
+  Para outros professores, configure SMTP próprio no Supabase Auth;
+  as credenciais de boletins na API não configuram esse serviço de login.
   Cookie: HttpOnly, SameSite=Lax, seguro na nuvem, até uma hora.
   Vercel sempre exige autenticação; configuração ausente bloqueia dados.
 

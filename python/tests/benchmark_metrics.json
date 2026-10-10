@@ -1,5 +1,10 @@
 {
   "engine": "printed-geometry-calibrated-v2",
+  "renderer_font": {
+    "family": "Liberation Sans",
+    "style": "Regular",
+    "sha256": "76d04c18ea243f426b7de1f3ad208e927008f961dc5945e5aad352d0dfde8ee8"
+  },
   "cases": 154,
   "questions": 8475,
   "correct_labels": 8475,
@@ -8,7 +13,7 @@
   "exact_cards": 154,
   "label_accuracy": 1.0,
   "confirmed_label_accuracy": 1.0,
-  "seconds": 66.15,
+  "seconds": 76.92,
   "confusion_counts": {
     "C->C": 1580,
     "B->B": 1565,

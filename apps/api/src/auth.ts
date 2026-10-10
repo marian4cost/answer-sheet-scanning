@@ -44,8 +44,10 @@ export class AuthService {
   }
   async requestCode(value: unknown) {
     const email = this.email(value);
-    await this.call('otp', {email, create_user: true});
-    return {message: 'Confira seu e-mail e informe o código de acesso.'};
+    const web = process.env.WEB_URL || (process.env.CORS_ORIGINS || '').split(',')[0];
+    const redirect = web ? '?redirect_to=' + encodeURIComponent(web.replace(/\/$/, '') + '/login') : '';
+    await this.call('otp' + redirect, {email, create_user: true});
+    return {message: 'Confira seu e-mail. Use o link de acesso ou informe o código, se ele estiver presente na mensagem.'};
   }
   async login(rawEmail: unknown, rawCode: unknown, response: Response) {
     const email = this.email(rawEmail);
@@ -56,9 +58,15 @@ export class AuthService {
     return {email};
   }
   logout(response: Response) { response.clearCookie(COOKIE, {httpOnly: true, secure: authRequired(), sameSite: 'lax', path: '/'}); return {ok: true}; }
+  async session(rawToken: unknown, response: Response) {
+    if (typeof rawToken !== 'string') throw new BadRequestException('Link de acesso inválido.');
+    const user = await this.user(rawToken);
+    response.cookie(COOKIE, rawToken, {httpOnly: true, secure: authRequired(), sameSite: 'lax', path: '/', maxAge: 3600_000});
+    return user;
+  }
   middleware() {
     return async (request: Request, response: Response, next: NextFunction) => {
-      if (!authRequired() || request.method === 'OPTIONS' || ['/api/health', '/api/auth/config', '/api/auth/codigo', '/api/auth/login', '/api/auth/logout'].includes(request.path)) return next();
+      if (!authRequired() || request.method === 'OPTIONS' || ['/api/health', '/api/auth/config', '/api/auth/codigo', '/api/auth/login', '/api/auth/session', '/api/auth/logout'].includes(request.path)) return next();
       try { await this.user(requestToken(request)); response.setHeader('Cache-Control', 'private, no-store'); next(); }
       catch (error) {
         const status = error instanceof ForbiddenException ? 403 : 401;
@@ -74,4 +82,5 @@ export class AuthController {
   @Post('codigo') code(@Body('email') email: unknown) { return this.auth.requestCode(email); }
   @Post('login') login(@Body('email') email: unknown, @Body('codigo') code: unknown, @Res({passthrough: true}) response: Response) { return this.auth.login(email, code, response); }
   @Post('logout') logout(@Res({passthrough: true}) response: Response) { return this.auth.logout(response); }
+  @Post('session') session(@Body('access_token') token: unknown, @Res({passthrough: true}) response: Response) { return this.auth.session(token, response); }
 }

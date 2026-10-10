@@ -5,6 +5,8 @@ usado nos testes de ponta a ponta do Nest; variações usam sementes reproduzív
 """
 from pathlib import Path
 import json
+import math
+import os
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -13,11 +15,17 @@ OPTIONS = 'ABCDE'
 FONT_CANDIDATES = [
     '/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf',
     '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
 ]
 
 
 def _font(size, font_path=None):
+    font_path = font_path or os.environ.get('OMR_TEST_FONT')
+    if font_path == 'builtin':
+        return ImageFont.load_default(size=size)
+    if font_path and not Path(font_path).is_file():
+        raise FileNotFoundError(f'A fonte explicitamente solicitada não existe: {font_path}')
     for candidate in [font_path, *FONT_CANDIDATES]:
         if candidate and Path(candidate).is_file():
             return ImageFont.truetype(candidate, size)
@@ -37,6 +45,12 @@ def printed_card(count, answers=None, output=None, *, seed=1, size=(1200, 1700),
     image = Image.new('RGB', size, 'white')
     draw = ImageDraw.Draw(image)
     font, heading = _font(font_size, font_path), _font(28, font_path)
+    # Fontes distintas têm larguras diferentes. O passo é uma distância
+    # mínima, nunca permissão para desenhar parênteses sobrepostos. DejaVu
+    # 21 ocupa 44 px em '( A )', enquanto Liberation ocupa ~36 px: o antigo
+    # passo 43 produzia uma folha fisicamente inválida no Ubuntu/CI.
+    label_width = max(draw.textlength(f'( {option} )', font=font) for option in OPTIONS)
+    step = max(step, math.ceil(label_width) + 6)
     draw.text((90, round(first_y * .18)), 'CARTAO DE RESPOSTAS — ENSAIO SINTETICO', font=heading, fill=(30, 30, 30))
     draw.text((90, round(first_y * .30)), 'MATRICULA: TESTE-SEM-DADOS-PESSOAIS', font=font, fill=(30, 30, 30))
     draw.text((90, round(first_y * .48)), 'Marque apenas UMA alternativa. Cartao de teste deterministico.', font=font, fill=(30, 30, 30))
@@ -59,7 +73,12 @@ def printed_card(count, answers=None, output=None, *, seed=1, size=(1200, 1700),
             state = answers[str(q)]
             if option == state or state == 'RAS' and option in 'AE':
                 center_y = y + (bbox[1] + bbox[3]) / 2
-                radius_x, radius_y = font_size * .41, font_size * .30
+                # 'solid' significa cobrir o glifo, não apenas um disco
+                # menor que uma letra de outra fonte. Mede o glifo real para
+                # preservar a mesma intenção óptica entre fontes/sistemas.
+                glyph = draw.textbbox((0, 0), option, font=font)
+                radius_x = max(font_size * .41, (glyph[2] - glyph[0]) * .75)
+                radius_y = max(font_size * .30, (glyph[3] - glyph[1]) * .65)
                 if mark_style == 'solid':
                     draw.ellipse((center_x - radius_x, center_y - radius_y,
                                   center_x + radius_x, center_y + radius_y), fill=(18, 18, 18))
@@ -71,8 +90,9 @@ def printed_card(count, answers=None, output=None, *, seed=1, size=(1200, 1700),
                         draw.line((center_x + dx[0], center_y + dy[0], center_x + dx[1], center_y + dy[1]), fill=(65, 65, 65), width=2)
             elif state == 'INC' and option == 'B':
                 # Tinta parcial deliberadamente ambígua: uma faixa, não resposta válida.
-                cy = y + (bbox[1] + bbox[3]) / 2
-                draw.line((center_x - font_size * .38, cy, center_x + font_size * .38, cy), fill=(65, 65, 65), width=max(3, round(font_size * .15)))
+                glyph = draw.textbbox((0, 0), option, font=font)
+                cy = y + (glyph[1] + glyph[3]) / 2 + font_size * .12
+                draw.line((center_x - font_size * .38, cy, center_x + font_size * .38, cy), fill=(65, 65, 65), width=max(3, round(font_size * .18)))
     canvas = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
     if output:
         destination = Path(output)
