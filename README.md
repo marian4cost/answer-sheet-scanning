@@ -135,6 +135,7 @@ Prepare Supabase, função OpenCV, API e interface, nessa ordem. Depois de obter
 DATABASE_URL                 conexão PostgreSQL real do Supabase
 DATABASE_SSL=true
 DATABASE_SSL_CA_BASE64       certificado CA oficial em PEM codificado em base64
+NODE_OPTIONS=--experimental-require-module
 STORAGE_MODE=supabase
 SUPABASE_URL                 URL real do projeto
 SUPABASE_ANON_KEY            chave usada para consultar Supabase Auth
@@ -150,6 +151,8 @@ REPORT_INSTITUTION          instituição do boletim
 ```
 
 `WEB_URL` também serve como alternativa a `CORS_ORIGINS` quando há uma origem. Se estiver ausente, o callback de login usa a primeira origem de `CORS_ORIGINS`. Use origens sem barra final e apenas domínios de produção/preview autorizados. Adicione variáveis de email somente para habilitar boletins. A conexão PostgreSQL exige certificado TLS válido e hostname correspondente; obtenha a CA oficial em Database → Settings no Supabase e codifique o PEM em base64. Caracteres reservados da senha devem ser codificados no componente de senha da URI, e o valor completo deve estar entre aspas no `.env`.
+
+O NestJS 12 publica módulos ESM; esta aplicação CommonJS usa o suporte `require(esm)` do Node.js. A Vercel desativa esse recurso por padrão: configure `NODE_OPTIONS=--experimental-require-module` no projeto **API** antes do deployment. [Configuração oficial da Vercel](https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration), [migração do NestJS 12](https://docs.nestjs.com/migration-guide).
 
 **Interface:** `API_BASE_URL` = URL HTTPS da API **sem `/api` e sem barra final**. As rewrites encaminham chamadas; senha de banco, chave de serviço e segredo OMR não são enviados ao navegador.
 
