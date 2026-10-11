@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, ParseIntPipe, Post, Put, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, ParseIntPipe, Post, Put, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { memoryStorage } from 'multer';
 import { ContactsService } from './contacts.service';
 import { ReportsService } from './reports.service';
@@ -27,5 +27,32 @@ export class ReportsController {
   @Put('resultados/:id/redacao') essay(@Param('id', ParseIntPipe) id: number, @Body() body: unknown) { return this.reports.saveEssay(id, body); }
   @Post('simulados/:id/boletins/planejar') plan(@Param('id', ParseIntPipe) id: number, @Body('resultado_ids') ids: unknown) { return this.reports.plan(id, ids); }
   @Post('simulados/:id/boletins/enviar') send(@Param('id', ParseIntPipe) id: number, @Body('token') token: unknown, @Body('confirmar') confirmation: unknown) { return this.reports.send(id, token, confirmation); }
+  @Post('simulados/:id/boletins/reemitir/planejar') planReissue(@Param('id', ParseIntPipe) id: number, @Body('delivery_id') deliveryId: unknown) { return this.reports.planReissue(id, deliveryId); }
+  @Post('simulados/:id/boletins/reemitir') reissue(@Param('id', ParseIntPipe) id: number, @Body('token') token: unknown, @Body('confirmar') confirmation: unknown) { return this.reports.reissue(id, token, confirmation); }
+  @Post('boletim/consultar') @HttpCode(200)
+  publicReport(@Body('token') token: unknown, @Res({passthrough:true}) response: Response) {
+    this.accessHeaders(response);
+    return this.reports.publicReport(token);
+  }
+  @Post('boletim/pdf') @HttpCode(200)
+  async publicPdf(@Body('token') token: unknown, @Res() response: Response) {
+    this.accessHeaders(response);
+    const buffer = await this.reports.publicPdf(token);
+    response.setHeader('Content-Type','application/pdf');
+    response.setHeader('Content-Disposition','attachment; filename="Boletim_Individual.pdf"');
+    response.send(buffer);
+  }
+  @Get('boletim/limpar')
+  cleanup(@Req() request: Request, @Res({passthrough:true}) response: Response) {
+    this.accessHeaders(response);
+    return this.reports.cleanupAccess(request.get('authorization'));
+  }
+  private accessHeaders(response: Response) {
+    response.setHeader('Cache-Control','private, no-store, max-age=0');
+    response.setHeader('Pragma','no-cache');
+    response.setHeader('Referrer-Policy','no-referrer');
+    response.setHeader('X-Robots-Tag','noindex, nofollow, noarchive');
+    response.setHeader('X-Content-Type-Options','nosniff');
+  }
   @Get('simulados/:id/boletins/entregas') deliveries(@Param('id', ParseIntPipe) id: number) { return this.reports.deliveries(id); }
 }

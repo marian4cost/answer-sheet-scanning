@@ -1,7 +1,10 @@
 import type { ReadingStatus, Score, ThemeScore } from './index';
 
 export interface StudentContact { matricula: string; email: string; nome: string; curso?: string; atualizado_em?: string }
-export interface EssayFeedback { nota_redacao: number | null; feedback_redacao: string; atualizado_em?: string }
+export interface EssayFeedback {
+  nota_redacao: number | null; feedback_redacao: string; atualizado_em?: string;
+  competencias_redacao?: number[]; avaliador_redacao?: string; situacao_redacao?: string; origem_redacao?: string;
+}
 export interface ReportArea extends Score { area: string; total_questoes: number; nota: number | null; nota_dez: number | null }
 export interface ReportQuestion { numero: number; resposta: string; gabarito: string; tema: string; area: string | null; resultado: 'CORRETA'|'INCORRETA'|'BRANCO'|'DUPLA'|'INCERTA'|'PENDENTE' }
 export interface ReportPriority { area: string; incorretas: number[]; brancos: number[]; duplas: number[]; incertas: number[] }
@@ -27,6 +30,7 @@ export interface ContactImportPreview {
 export interface DeliveryPlan {
   token: string; simulado_id: number; alunos: Array<{resultado_id: number; matricula: string; nome: string; email: string; nota_percentual: number; content_hash: string}>;
   total: number; expira_em: string; envio_disponivel: boolean; envio_motivo: string;
+  reemissao?: boolean; delivery_id?: number;
 }
 export interface ReportDelivery {
   resultado_id: number; matricula: string; email: string;

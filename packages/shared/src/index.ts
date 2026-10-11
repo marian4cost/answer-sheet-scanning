@@ -20,6 +20,7 @@ export interface Resultado extends Score {
   status: ReadingStatus; mensagem_leitura: string; imagem_debug: string | null;
   criado_em: string; gabarito_do_envio: AnswerKey;
   desempenho_temas: ThemeScore[];
+  arquivo_origem?: string; pagina_origem?: number | null; matricula_fonte?: string;
 }
 export interface Indicators {
   total_provas: number; total_envios: number; media_nota: number;
@@ -37,4 +38,6 @@ export interface UploadResult { envio_id: number; simulado_id: number; message: 
 export interface OMRReading {
   respostas_detectadas: AnswerKey; status: ReadingStatus; erro_msg: string;
   debug_image_path: string | null; layout?: string;
+  page_number?: number; matricula_detectada?: string | null; matricula_status?: string;
+  matricula_fonte?: string | null; matricula_candidatas?: string[];
 }

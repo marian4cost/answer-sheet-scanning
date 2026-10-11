@@ -120,6 +120,8 @@ export class AuthService {
     return async (request: Request, response: Response, next: NextFunction) => {
       if (!authRequired()) { response.setHeader('Cache-Control', 'private, no-store'); return next(); }
       response.setHeader('Cache-Control','private, no-store');
+      const publicReport = (request.method === 'POST' && ['/api/boletim/consultar','/api/boletim/pdf'].includes(request.path)) || (request.method === 'GET' && request.path === '/api/boletim/limpar');
+      if (publicReport) { response.setHeader('Referrer-Policy','no-referrer'); response.setHeader('X-Robots-Tag','noindex, nofollow, noarchive'); return next(); }
       if (request.method === 'OPTIONS' || ['/api/health', '/api/auth/config', '/api/auth/codigo', '/api/auth/cadastro', '/api/auth/senha', '/api/auth/login', '/api/auth/session', '/api/auth/logout'].includes(request.path)) return next();
       try { await this.user(requestToken(request)); response.setHeader('Cache-Control', 'private, no-store'); next(); }
       catch (error) {

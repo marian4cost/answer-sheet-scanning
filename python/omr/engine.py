@@ -412,14 +412,14 @@ def _save_debug(image, coordinates, radii, densities, answers, key, output_path,
         raise OSError('Não foi possível salvar o espelho da leitura.')
 
 
-def process_image(file_path, answer_key=None, output_debug_path=None, question_count=None):
+def process_image(file_path, answer_key=None, output_debug_path=None, question_count=None, page_number=None):
     """Retorna marcações e espelho; persistência e notas pertencem ao NestJS."""
     answer_key = answer_key or {}
     try:
         question_count = 50 if question_count is None else question_count
         if isinstance(question_count, bool) or not isinstance(question_count, int) or not 50 <= question_count <= 60:
             raise ValueError('A quantidade deve ser um inteiro entre 50 e 60 questões.')
-        image = load_image_or_pdf(file_path, dpi=300)
+        image = load_image_or_pdf(file_path, dpi=300, page_number=page_number)
         aligned, binary, coordinates, radii, layout = locate_grid(image, question_count)
         # Integra cobertura suavizada para reduzir mudanças de um único pixel
         # ao redimensionar/fotografar letras finas. Dilatação nunca mede tinta.
@@ -442,6 +442,7 @@ def process_image(file_path, answer_key=None, output_debug_path=None, question_c
                 'densidades': densities, 'calibracao': baselines or {}, 'qualidade_questoes': quality, 'debug_image_path': str(output_debug_path) if output_debug_path else None,
                 'erro_msg': ''}
     except Exception as exc:
-        logger.warning('Falha na leitura de %s: %s', file_path, exc)
+        # O nome/caminho pode conter a matrícula; logs operacionais não o exibem.
+        logger.warning('Falha na leitura do cartão: %s', exc)
         return {'respostas_detectadas': {}, 'status': 'ERRO_LEITURA',
                 'debug_image_path': None, 'erro_msg': str(exc)}

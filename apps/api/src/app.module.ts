@@ -12,5 +12,9 @@ import { ContactsService } from './contacts.service';
 import { ReportsService, ReportEmailGateway } from './reports.service';
 import { AuthController, AuthService } from './auth';
 import { EmailJsService } from './emailjs.service';
-@Module({controllers: [AppController, UploadsController, ReportsController, AuthController], providers: [DatabaseService, SimuladosService, OmrService, ExportService, StorageService, UploadsService, ContactsService, ReportsService, ReportEmailGateway, AuthService, EmailJsService]})
+import { EssayImportController } from './essay-import.controller';
+import { EssayImportService } from './essay-import.service';
+import { ProofImportController } from './proof-import.controller';
+import { ProofImportService } from './proof-import.service';
+@Module({controllers: [AppController, UploadsController, ReportsController, AuthController, EssayImportController, ProofImportController], providers: [DatabaseService, SimuladosService, OmrService, ExportService, StorageService, UploadsService, ContactsService, ReportsService, ReportEmailGateway, AuthService, EmailJsService, EssayImportService, ProofImportService]})
 export class AppModule {}

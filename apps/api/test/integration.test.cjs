@@ -71,8 +71,11 @@ function official(title, buffer = photo, name = 'official.jpeg', field = 'gabari
   const form = new FormData(); if (title) form.append('titulo', title);
   form.append(field, new Blob([buffer]), name); return form;
 }
-function proofs(names, buffer = photo) {
-  const form = new FormData(); for (const name of names) form.append('pdf_files', new Blob([buffer]), name); return form;
+function proofs(names, buffer = photo, matriculas) {
+  const form = new FormData(); for (const name of names) form.append('pdf_files', new Blob([buffer]), name);
+  // These synthetic fixtures lack reliable enrollment headers: the teacher supplies an explicit mapping.
+  if (matriculas !== undefined) form.append('matriculas', JSON.stringify(matriculas));
+  return form;
 }
 before(async () => { app = await createApplication(false); await app.listen(0, '127.0.0.1'); base = `http://127.0.0.1:${app.getHttpServer().address().port}/api`; });
 after(async () => { if (app) await app.close(); rmSync(temp, {recursive: true, force: true}); });
@@ -94,9 +97,9 @@ test('cria um simulado real lendo as 50 alternativas de uma foto', async () => {
   assert.equal(status, 201); assert.deepEqual(json.gabarito_oficial, key); simuladoId = json.id;
 });
 test('adiciona 3 provas e depois 2, mantendo as cinco e o histórico', async () => {
-  let result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['001.jpeg', '002.jpeg', '003.jpeg'])});
+  let result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['001.jpeg', '002.jpeg', '003.jpeg'], photo, ['001','002','003'])});
   assert.equal(result.status, 201); firstBatch = result.json.envio_id; assert.equal(result.json.total_provas, 3);
-  result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['004.JPEG', '005.jpeg'])});
+  result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['004.JPEG', '005.jpeg'], photo, ['004','005'])});
   assert.equal(result.status, 201); assert.equal(result.json.total_provas, 5);
   const {json} = await request(`/simulados/${simuladoId}/resultados`);
   assert.equal(json.indicadores.total_provas, 5); assert.equal(json.indicadores.media_nota, 100); assert.equal(json.indicadores.total_envios, 2);
@@ -119,7 +122,7 @@ test('exporta as 5 provas e seus envios para Excel em Node.js', async () => {
 test('aceita PDF e identifica branco e marcação dupla com a mesma solução OMR', async () => {
   const officialResult = await request('/simulados', {method: 'POST', body: official('PDF', patternPdf, 'official.pdf')});
   assert.equal(officialResult.status, 201);
-  const result = await request(`/simulados/${officialResult.json.id}/provas`, {method: 'POST', body: proofs(['123.pdf'], pdf)});
+  const result = await request(`/simulados/${officialResult.json.id}/provas`, {method: 'POST', body: proofs(['123.pdf'], pdf, ['123'])});
   assert.equal(result.status, 201);
   const {json} = await request(`/simulados/${officialResult.json.id}/resultados`);
   assert.equal(json.resultados[0].total_acertos, 48); assert.equal(json.resultados[0].total_rasuras, 1); assert.equal(json.resultados[0].total_brancos, 1);
@@ -131,7 +134,7 @@ test('trocar gabarito não muda as notas e a chave dos envios anteriores', async
   assert.equal(json.resultados[0].nota_percentual, 100); assert.deepEqual(json.resultados[0].gabarito_do_envio, key);
 });
 test('reenvio da mesma matrícula acrescenta uma correção, sem sobrescrever', async () => {
-  const result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['001.jpeg'])}); assert.equal(result.status, 201);
+  const result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['001.jpeg'], photo, ['001'])}); assert.equal(result.status, 201);
   const {json} = await request(`/simulados/${simuladoId}/resultados`);
   assert.equal(json.resultados.filter(r => r.matricula === '001').length, 2); assert.equal(json.resultados.length, 6);
 });
@@ -142,13 +145,13 @@ test('arquivo inválido não cria simulado e limpa os temporários', async () =>
 });
 test('lote misto inválido não grava envio parcial', async () => {
   const before = (await request(`/simulados/${simuladoId}/resultados`)).json.indicadores.total_envios;
-  const form = proofs(['valid.jpeg']); form.append('pdf_files', new Blob(['inválido']), 'bad.png');
+  const form = proofs(['valid.jpeg']); form.append('pdf_files', new Blob(['inválido']), 'bad.png'); form.append('matriculas', JSON.stringify(['valid','bad']));
   const result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: form}); assert.equal(result.status, 400);
   assert.equal((await request(`/simulados/${simuladoId}/resultados`)).json.indicadores.total_envios, before);
 });
 test('arquivo não reconhecido registra motivo, sem informar 50 brancos', async () => {
   const unknown = join(temp, 'unknown.png');
-  const result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['unknown.png'], readFileSync(unknown))}); assert.equal(result.status, 201);
+  const result = await request(`/simulados/${simuladoId}/provas`, {method: 'POST', body: proofs(['unknown.png'], readFileSync(unknown), ['unknown'])}); assert.equal(result.status, 201);
   const {json} = await request(`/simulados/${simuladoId}/resultados`);
   const row = json.resultados.find(r => r.matricula === 'unknown'); assert.equal(row.status, 'ERRO_LEITURA'); assert.equal(row.total_brancos, 0); assert.equal(row.imagem_debug, null);
   assert.ok(row.mensagem_leitura.length > 10, 'falha de leitura precisa ter motivo legível');
@@ -186,7 +189,7 @@ test('cria simulado de 60 questões com intervalos, inclusive espaços sem tema'
 });
 test('corrige todas as 60 questões e calcula acertos por tema com a chave do envio', async () => {
   const path = join(temp, 'student60.pdf');
-  const result = await request(`/simulados/${variableSimuladoId}/provas`, {method: 'POST', body: proofs(['060.pdf'], readFileSync(path))});
+  const result = await request(`/simulados/${variableSimuladoId}/provas`, {method: 'POST', body: proofs(['060.pdf'], readFileSync(path), ['060'])});
   assert.equal(result.status, 201); variableBatch = result.json.envio_id;
   const {json} = await request(`/simulados/${variableSimuladoId}/resultados`);
   const r = json.resultados[0]; assert.equal(r.total_acertos, 57); assert.equal(r.nota_percentual, 95);

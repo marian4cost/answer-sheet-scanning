@@ -9,7 +9,7 @@ import { SimuladosService } from './simulados.service';
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE, MEDIA_ROOT } from './config';
 import { questionCount } from './question-config';
 
-interface UploadReceipt { id: string; path: string; name: string; size: number; purpose: 'gabarito' | 'prova'; created_at: string; consumed_at: string | null }
+export interface UploadReceipt { id: string; path: string; name: string; size: number; purpose: 'gabarito' | 'prova'; created_at: string; consumed_at: string | null }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
@@ -66,6 +66,7 @@ export class UploadsService {
       return receipts;
     });
   }
+  async claimProofs(ids: unknown): Promise<UploadReceipt[]> { return this.consume(ids, 'prova'); }
   private async download(receipt: UploadReceipt): Promise<Express.Multer.File> {
     const downloaded = await this.storage.get(receipt.path, receipt.size);
     if (downloaded.buffer.length !== receipt.size) throw new BadRequestException('O arquivo recebido tem um tamanho diferente do informado. Envie-o novamente.');

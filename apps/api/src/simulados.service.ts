@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { join, basename, extname } from 'node:path';
+import { join, extname } from 'node:path';
 import { rename, rm, readFile } from 'node:fs/promises';
 import type { AnswerKey, DashboardData, Simulado, SimuladoDetail, Envio, Resultado, ResultsData, UploadResult, OMRReading } from '@enem/shared';
 import { DatabaseService } from './database.service';
@@ -68,16 +68,30 @@ export class SimuladosService {
     this.assertKey(key as AnswerKey, count);
     return key as AnswerKey;
   }
-  private matriculas(value: unknown, files: Express.Multer.File[]): string[] {
-    if (value === undefined || value === '') return files.map(file => basename(file.originalname, extname(file.originalname)).slice(0, 100));
+  private matriculas(value: unknown, files: Express.Multer.File[]): string[] | null {
+    if (value === undefined || value === '') return null;
     let entries: unknown = value;
     if (typeof entries === 'string') {
       try { entries = JSON.parse(entries); } catch { throw new BadRequestException('A lista de matrículas é inválida.'); }
     }
-    if (!Array.isArray(entries) || entries.length !== files.length || entries.some(entry => typeof entry !== 'string' || !entry.trim() || entry.trim().length > 100)) {
-      throw new BadRequestException('Informe uma matrícula de até 100 caracteres para cada prova, na ordem dos arquivos.');
+    if (!Array.isArray(entries) || entries.length !== files.length || entries.some(entry => typeof entry !== 'string' || !entry.trim() || entry.trim().length > 100 || /[\u0000-\u001f\u007f-\u009f]/.test(entry))) {
+      throw new BadRequestException('Informe uma matrícula de até 100 caracteres, sem caracteres de controle, para cada prova, na ordem dos arquivos.');
     }
     return entries.map(entry => (entry as string).trim());
+  }
+  private async assertSinglePage(filePath: string, official = false) {
+    // The production processor always exposes documentInfo; lightweight legacy test doubles may omit it.
+    if (typeof this.omr.documentInfo !== 'function') return;
+    const info = await this.omr.documentInfo(filePath);
+    if (!Number.isSafeInteger(info.page_count) || info.page_count < 1) throw new BadRequestException('Não foi possível confirmar a quantidade de páginas do documento. Use a prévia para revisar o arquivo.');
+    if (info.page_count !== 1) throw new BadRequestException(official
+      ? 'O gabarito do professor deve conter apenas uma página. Separe a página correta antes de cadastrar o simulado.'
+      : 'Este PDF contém várias páginas. Use a prévia de importação para identificar e corrigir todos os cartões.');
+  }
+  private detectedMatricula(reading: OMRReading): string {
+    const value = reading.matricula_detectada;
+    if (reading.matricula_status !== 'CONFIRMADA' || typeof value !== 'string' || !value.trim() || value.trim().length > 100 || /[\u0000-\u001f\u007f-\u009f]/.test(value)) throw new BadRequestException('Não foi possível confirmar a matrícula no cartão. Use a prévia para revisar a identificação e corrigir a matrícula antes de importar.');
+    return value.trim();
   }
   async debugImage(id: number) {
     const row = await this.db.get<{imagem_debug: string | null}>('SELECT imagem_debug FROM core_resultadoaluno WHERE id=?', id);
@@ -89,6 +103,7 @@ export class SimuladosService {
     const debug = join(MEDIA_ROOT, 'debug_images', randomUUID() + '_official.png');
     try {
       await this.omr.validate([file]);
+      await this.assertSinglePage(file.path, true);
       const reading = await this.omr.process(file.path, {}, debug, count);
       if (reading.status === 'ERRO_LEITURA') throw new BadRequestException(reading.erro_msg);
       this.assertKey(reading.respostas_detectadas, count);
@@ -147,7 +162,7 @@ export class SimuladosService {
   }
   async upload(id: number, files: Express.Multer.File[], rawMatriculas?: unknown, loadFile?: (index: number) => Promise<Express.Multer.File>): Promise<UploadResult> {
     if (!files.length) throw new BadRequestException('Selecione pelo menos uma prova.');
-    const staged: {file: Express.Multer.File; reading: OMRReading; input: string; debug: string}[] = [];
+    const staged: {file: Express.Multer.File; reading: OMRReading; input: string; debug: string; matricula: string; source: string}[] = [];
     let committed = false;
     const downloaded: Express.Multer.File[] = [];
     try {
@@ -158,18 +173,20 @@ export class SimuladosService {
       for (let index = 0; index < files.length; index++) {
         const file = loadFile ? await loadFile(index) : files[index];
         if (loadFile) { downloaded.push(file); await this.omr.validate([file]); }
+        await this.assertSinglePage(file.path);
         const uuid = randomUUID();
         const input = 'uploads/' + uuid + extname(file.originalname).toLowerCase();
         const debug = 'debug_images/' + uuid + '_debug.png';
-        const entry = {file, input, debug, reading: {} as OMRReading};
+        const entry = {file, input, debug, reading: {} as OMRReading, matricula: matriculas?.[index] || '', source: matriculas ? 'manual' : 'documento'};
         staged.push(entry);
         await rename(file.path, join(MEDIA_ROOT, input));
         try {
-          entry.reading = await this.omr.process(join(MEDIA_ROOT, input), simulado.gabarito_oficial, join(MEDIA_ROOT, debug), simulado.total_questoes);
+          entry.reading = await this.omr.process(join(MEDIA_ROOT, input), simulado.gabarito_oficial, join(MEDIA_ROOT, debug), simulado.total_questoes, 1, !matriculas);
         } catch {
           entry.reading = {respostas_detectadas: {}, status: 'ERRO_LEITURA', debug_image_path: null,
             erro_msg: 'Não foi possível processar este arquivo. Reenvie uma cópia legível.'};
         }
+        if (!matriculas) { entry.matricula = this.detectedMatricula(entry.reading); entry.source = ['pdf_texto','ocr'].includes(entry.reading.matricula_fonte || '') ? entry.reading.matricula_fonte! : 'documento'; }
         if (STORAGE_MODE === 'supabase') {
           await this.storage.put(entry.input, await readFile(join(MEDIA_ROOT, entry.input)), entry.file.mimetype);
           if (entry.reading.debug_image_path) await this.storage.put(entry.debug, await readFile(join(MEDIA_ROOT, entry.debug)), 'image/png');
@@ -188,11 +205,11 @@ export class SimuladosService {
           const score = grade(r.respostas_detectadas, simulado.gabarito_oficial, r.status, simulado.total_questoes);
           const uncertain = Object.entries(r.respostas_detectadas).filter(([, answer]) => answer === 'INC').map(([q]) => q);
           const message = uncertain.length ? 'Nota provisória. Confira as questões ' + uncertain.join(', ') + ' e reenvie uma imagem mais nítida.' : r.erro_msg;
-          const matricula = matriculas[index];
-          await this.db.run(`INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,total_incertas,nota_percentual,imagem_debug,status,lote_id,mensagem_leitura)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, matricula, JSON.stringify(r.respostas_detectadas), score.total_acertos, score.total_erros,
+          const matricula = entry.matricula;
+          await this.db.run(`INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,total_incertas,nota_percentual,imagem_debug,status,lote_id,mensagem_leitura,arquivo_origem,pagina_origem,matricula_fonte)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, matricula, JSON.stringify(r.respostas_detectadas), score.total_acertos, score.total_erros,
             score.total_rasuras, score.total_brancos, score.total_incertas, score.nota_percentual,
-            r.debug_image_path ? entry.debug : null, r.status, batchId, message || '');
+            r.debug_image_path ? entry.debug : null, r.status, batchId, message || '', entry.file.originalname.replace(/[\u0000-\u001f\u007f-\u009f]/g,'').slice(0,255), 1, entry.source);
         }
         return batchId;
       });
@@ -210,11 +227,17 @@ export class SimuladosService {
   async delete(id: number, confirmation: unknown) {
     if (confirmation !== 'sim') throw new BadRequestException('Confirme a exclusão do simulado.');
     const simulado = await this.get(id);
+    const pending = await this.db.all<{payload:string}>('SELECT payload FROM proof_import_plans WHERE simulado_id=?', id);
+    const temporaryFiles = pending.flatMap(row => {
+      const payload = JSON.parse(row.payload) as {files?:Array<{key?:string}>};
+      return (payload.files || []).map(file=>file.key).filter((key):key is string=>typeof key==='string' && /^(importing|incoming)\/[0-9a-f-]+\.[a-z0-9]+$/i.test(key));
+    });
     await this.db.transaction(async () => {
       await this.db.run('DELETE FROM core_resultadoaluno WHERE lote_id IN (SELECT id FROM core_lotecorrecao WHERE simulado_id=?)', id);
       await this.db.run('DELETE FROM core_lotecorrecao WHERE simulado_id=?', id);
       await this.db.run('DELETE FROM core_simulado WHERE id=?', id);
     });
+    await Promise.all(temporaryFiles.map(key=>this.storage.remove(key).catch(()=>undefined)));
     return {message: `Simulado '${simulado.titulo}' e seus resultados foram excluídos.`};
   }
 }

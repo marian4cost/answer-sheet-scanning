@@ -27,12 +27,14 @@ Se precisar configurar caminhos ou portas, copie `.env.example` para `.env` **so
 1. Cadastre título e quantidade: qualquer inteiro de **50 a 60**.
 2. Envie a folha oficial e use **Ler folha para conferir**, ou escolha **Digitar gabarito**. Confira uma alternativa A a E por questão antes de salvar. Branco, dupla e leitura incerta não são aceitos como chave oficial.
 3. Cadastre os intervalos de temas. Exemplo: 1–22 Linguagens e 25–30 Ciências da Natureza. Limites são inclusivos; sobreposições são rejeitadas. Lacunas ficam **Sem tema** e faixas com o mesmo nome têm desempenho agrupado.
-4. Envie as provas e confira o campo **Matrícula** de cada arquivo. O nome do arquivo o preenche inicialmente; você pode corrigir antes do envio. Não há OCR de matrícula ou nome.
+4. Envie imagens individuais ou o PDF completo da turma. Cada página corresponde a um cartão. A prévia lê a matrícula no texto do PDF ou por OCR local no cabeçalho; confira cada página, corrija identificações pendentes e selecione os cartões antes de confirmar. O nome do arquivo nunca é usado como matrícula.
 5. Confira resultados, alertas e espelhos. Envios novos se somam aos anteriores; reenvios da mesma matrícula ficam como provas distintas no histórico.
 
 O cartão impresso tem duas colunas numeradas de cima para baixo: metade à esquerda e metade à direita. Em ímpares, a esquerda tem uma linha a mais: **50 = 25 + 25**, **55 = 28 + 27**, **60 = 30 + 30**. Também é aceito o modelo compatível de bolhas com quatro marcadores. A quantidade cadastrada deve corresponder à folha inteira; não há corte automático nem reconhecimento de todo formulário arbitrário.
 
-Formatos: PDF, JPEG/JPG, PNG, WEBP, BMP e TIFF, até **20 MB/arquivo** e **50 arquivos/envio**. Há um cartão por arquivo; PDF usa a primeira página. Fotografias aplicam orientação EXIF e transparência sobre fundo branco, até 40 megapixels.
+Formatos: PDF, JPEG/JPG, PNG, WEBP, BMP e TIFF, até **20 MB/arquivo**, **50 arquivos** e **100 páginas por importação**. PDFs são lidos página a página, incluindo documentos digitalizados. Fotografias aplicam orientação EXIF e transparência sobre fundo branco, até 40 megapixels. A matrícula permanece como texto, preservando zeros iniciais; ausência, ambiguidade e baixa confiança exigem conferência na prévia.
+
+A importação dura duas horas e fica salva no banco. A identificação avança em blocos de três páginas e a correção em blocos de duas, respeitando os tempos da hospedagem. Cada página concluída já está armazenada; use **Retomar** após uma interrupção. Matrículas repetidas e páginas excluídas exigem seleção explícita. O gabarito é registrado com o lote e revalidado na confirmação. Os arquivos originais temporários são removidos após conclusão ou expiração; espelhos e resultados continuam salvos. O endpoint antigo de upload aceita somente cartões individuais e exige matrícula explícita ou extração confirmada; nunca trunca PDFs multipágina.
 
 Na nuvem com Supabase Storage, a interface envia diretamente ao bucket privado por URLs de upload assinadas. A API recebe identificadores e processa lotes de até três provas por chamada. Lotes concluídos permanecem salvos se uma chamada seguinte falhar. Assim, imagens grandes não precisam passar no corpo das funções Vercel.
 
@@ -76,6 +78,18 @@ Para enviar, selecione boletins aptos, clique em **Revisar destinatários**, con
 
 O plano dura 15 minutos e está vinculado ao conteúdo e ao contato. Mudanças exigem nova revisão. Entregas do mesmo conteúdo ao mesmo destinatário são idempotentes. Sem confirmação do provedor, o histórico indica a pendência e o sistema não reenvia automaticamente; confira o provedor antes de outra entrega.
 
+### Importar avaliações da redação
+
+Na tela **Boletins**, envie o XLSX/CSV exportado das respostas do Google Forms. São reconhecidos os cabeçalhos do modelo institucional: Matrícula do Aluno, Nome Completo do Aluno, Nome do Avaliador, Situação do Texto / Anulação, Competências 1 a 5 e Observações Gerais e Feedback para o Aluno. O modelo recebido em 11/10/2026 contém apenas cabeçalhos; exporte as respostas preenchidas para importar notas.
+
+Cada competência aceita 0 a 200 pontos; a nota geral é a soma de 0 a 1000. Se existir uma coluna de nota total, ela deve corresponder à soma. Fórmulas, critérios ausentes, valores fora da escala e matrículas repetidas ambíguas bloqueiam a importação. Matrículas numéricas inteiras do Forms são convertidas sem acrescentar zeros e com aviso; a associação continua exata. A prévia mostra avaliações anteriores e exige confirmação adicional para substituí-las. Só as correções da mesma matrícula no simulado selecionado são atualizadas, incluindo reenvios explicitados na prévia.
+
+### Acesso temporário do aluno
+
+O email contém `/boletim#TOKEN`: a página remove o fragmento da barra de endereço e consulta a API por POST. O token de 32 bytes não é guardado no navegador nem em texto claro no banco. A autorização dura sete dias por padrão (`REPORT_LINK_TTL_DAYS`), funciona durante o prazo sem ser consumida no primeiro acesso e bloqueia consultas quando expirada, revogada ou quando o conteúdo foi alterado. A ação **Reemitir link** exige nova revisão e revoga o acesso anterior mantendo a entrega registrada.
+
+`AUTH_ENABLED=true` protege os recursos do professor. Apenas os POSTs `/api/boletim/consultar` e `/api/boletim/pdf` aceitam acesso do aluno, sempre com token válido. Respostas usam `private, no-store`, sem referrer e sem indexação. A limpeza diária configurada na API Vercel usa `CRON_SECRET` (mínimo 32 caracteres) às 08h UTC: remove autorizações e prévias expiradas, mantendo resultados acadêmicos. Nenhum PDF de boletim é persistido na nuvem.
+
 ## Email opcional dos boletins
 
 O envio só fica disponível com provedor configurado **no NestJS**:
@@ -88,7 +102,7 @@ O envio só fica disponível com provedor configurado **no NestJS**:
 
 Use um remetente autorizado pelo provedor. `SMTP_FROM` é alternativa a `EMAIL_FROM`. O padrão SMTP é porta 587 com TLS exigido; 465 ou `SMTP_SECURE=true` usa TLS desde a conexão. Resend tem precedência quando `RESEND_API_KEY` existe. Credenciais não devem ir ao cliente ou a variáveis `NEXT_PUBLIC_*`.
 
-EmailJS tem precedência. O template exclusivo usa assunto `{{subject}}`, destinatário `{{to_email}}` e HTML `{{{message_html}}}`. Ative **Allow EmailJS API for non-browser applications** com **Use Private Key**. Depois configure `EMAILJS_ENABLED=true` na API (`false` suspende envios). Ative **Do not save private data** no template para não guardar códigos/notas no histórico do provedor. O backend espaça chamadas em pelo menos 1,1 segundo, inclusive entre instâncias na Vercel. O plano gratuito aceita 200 requisições mensais, dois templates e mensagens de até 50 KB, sem anexo. Nesse modo, o boletim completo é enviado no corpo do email e o professor pode baixar o PDF no site. [Limites EmailJS](https://www.emailjs.com/pricing/) e [API oficial](https://www.emailjs.com/docs/rest-api/send/).
+EmailJS tem precedência. O template exclusivo usa assunto `{{subject}}`, destinatário `{{to_email}}` e HTML `{{{message_html}}}`. Ative **Allow EmailJS API for non-browser applications** com **Use Private Key**. Depois configure `EMAILJS_ENABLED=true` na API (`false` suspende envios). Ative **Do not save private data** no template para não guardar códigos/notas no histórico do provedor. O backend espaça chamadas em pelo menos 1,1 segundo, inclusive entre instâncias na Vercel. O plano gratuito aceita 200 requisições mensais, dois templates e mensagens de até 50 KB, sem anexo. Todos os provedores enviam uma mensagem curta com um link temporário; notas, respostas e PDF não são colocados no email. O PDF é produzido em memória quando o aluno solicita o download. [Limites EmailJS](https://www.emailjs.com/pricing/) e [API oficial](https://www.emailjs.com/docs/rest-api/send/).
 
 Os testes simulam os provedores, sem enviar emails reais. Importar a planilha não envia mensagens. O relatório institucional com aba **Registros** e cabeçalhos **Matrícula**, **Email Acadêmico**, **Nome** e **Descrição do Curso** é reconhecido diretamente. Abas de filtros são ignoradas; duas abas de contatos ou duas colunas de email reconhecidas são rejeitadas por ambiguidade. Matrículas continuam como texto.
 
@@ -111,7 +125,7 @@ Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/aut
 
 ## Publicação Vercel e Supabase
 
-Publicação verificada em 10/10/2026: [interface](https://enem-leitor-web.vercel.app), [health da API](https://enem-leitor-api.vercel.app/api/health) e processador Python em `https://enem-leitor-omr.vercel.app/api/omr`. A interface tem acesso direto enquanto `AUTH_ENABLED=false`; o processador recebe apenas chamadas autenticadas da API. O código está no [repositório privado](https://github.com/GenissonEmilio/enem-leitor).
+Publicação atual: [interface](https://enem-leitor-web.vercel.app), [health da API](https://enem-leitor-api.vercel.app/api/health) e processador Python em `https://enem-leitor-omr.vercel.app/api/omr`. A interface exige login de professor; o aluno acessa apenas seu boletim com o link temporário recebido. O processador recebe chamadas autenticadas da API. O código está no [repositório privado](https://github.com/GenissonEmilio/enem-leitor).
 
 Use **três projetos Vercel do mesmo repositório**. Para reproduzir a instalação em outra conta, substitua URLs e credenciais nas configurações abaixo.
 
@@ -141,7 +155,10 @@ SUPABASE_SERVICE_ROLE_KEY    chave de servidor para Storage privado
 SUPABASE_STORAGE_BUCKET=omr-private
 OMR_REMOTE_URL              URL HTTPS do Python terminada em /api/omr
 OMR_REMOTE_SECRET           segredo aleatório longo, igual ao do Python
-AUTH_ENABLED=false          acesso direto temporário; true reativa o login
+AUTH_ENABLED=true           exige login de professor
+AUTH_REGISTRATION_ENABLED=true  cadastro com código por email
+REPORT_LINK_TTL_DAYS=7       prazo do link individual
+CRON_SECRET                 segredo da limpeza diária, mínimo 32 caracteres
 TEACHER_EMAILS              emails autorizados separados por vírgula
 WEB_URL                     origem da interface usada no callback /login
 CORS_ORIGINS                origens HTTPS exatas da interface, separadas por vírgula
@@ -179,7 +196,7 @@ O SQLite não é modificado. IDs, notas, respostas, matrículas e snapshots são
 
 Confira a cópia independentemente, incluindo SHA-256 dos espelhos, com `node scripts/verify-postgres-migration.mjs`. O certificado configurado também é usado pelos scripts de migração e verificação.
 
-A migração de 10/10/2026 conservou **4 simulados, 4 lotes, 19 resultados e 19 espelhos**, conferidos campo a campo e por SHA-256. O SQLite original e o backup permanecem locais e fora do Git. O fluxo publicado foi validado com provas fictícias de 50/60 questões, incluindo uma mesma prova corrigida com duas chaves, snapshots históricos e persistência após novo deployment. SMTP/Resend dos boletins ainda precisa ser configurado; os testes não enviam mensagens a alunos.
+A migração de 10/10/2026 conservou **4 simulados, 4 lotes, 19 resultados e 19 espelhos**, conferidos campo a campo e por SHA-256. O SQLite original e o backup permanecem locais e fora do Git. O fluxo publicado foi validado com provas fictícias de 50/60 questões, incluindo uma mesma prova corrigida com duas chaves, snapshots históricos e persistência após novo deployment. EmailJS foi configurado e validado com mensagens de teste autorizadas. Testes automatizados usam provedores simulados e não enviam mensagens a alunos.
 
 ## Testes e evidências
 

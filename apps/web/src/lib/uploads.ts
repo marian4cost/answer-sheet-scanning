@@ -1,4 +1,5 @@
 import type { OMRReading, UploadResult } from '@enem/shared';
+import type { ProofImportPlan } from '@enem/shared/src/proof-import';
 import { api, validateFiles } from './api';
 async function privateUploads() { return (await api<{private_uploads: boolean}>('/config')).private_uploads; }
 async function store(files: File[], purpose: 'gabarito' | 'prova') {
@@ -19,6 +20,18 @@ export async function readKey(file: File, count: number) {
   }
   const form = new FormData(); form.append('gabarito_pdf', file); form.append('total_questoes', String(count));
   return api<OMRReading>('/leituras/gabarito', {method: 'POST', body: form});
+}
+export async function prepareProofImport(id: number, files: File[]) {
+  validateFiles(files);
+  if (await privateUploads()) {
+    const upload_ids = await store(files, 'prova');
+    return api<ProofImportPlan>(`/simulados/${id}/provas/importacoes/armazem`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({upload_ids}),
+    });
+  }
+  const body = new FormData();
+  files.forEach(file => body.append('pdf_files', file));
+  return api<ProofImportPlan>(`/simulados/${id}/provas/importacoes`, {method: 'POST', body});
 }
 export async function uploadProofs(id: number, files: File[], matriculas: string[], onProgress: (done: number) => void) {
   validateFiles(files);

@@ -8,13 +8,15 @@ from pathlib import Path
 import re
 import sys
 import tempfile
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qsl
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 from omr.engine import process_image
 from omr.validation import validate_file
+from omr.pdf_loader import document_info
+from omr.identity import inspect_document, extract_page_identity
 
 MAX_FILE = 20 * 1024 * 1024
 cv2.setNumThreads(1)
@@ -27,12 +29,21 @@ def safe_url(value):
     configured = urlparse(os.environ.get('SUPABASE_URL', ''))
     url = urlparse(value if isinstance(value, str) else '')
     bucket = os.environ.get('SUPABASE_STORAGE_BUCKET', 'omr-private')
-    prefix = '/storage/v1/object/sign/' + bucket + '/processing/'
+    prefix = '/storage/v1/object/sign/' + bucket + '/'
     path = unquote(url.path)
+    # Todos os três fluxos pertencem ao armazenamento privado da aplicação:
+    # incoming (upload assinado), importing (lote persistido) e processing
+    # (cópia temporária). Não aceita nomes originais nem diretórios arbitrários.
+    object_path = re.escape(prefix) + r'(incoming|importing|processing)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|jpg|jpeg|png|webp|bmp|tif|tiff)'
+    try:
+        query = parse_qsl(url.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        query = []
     if (configured.scheme != 'https' or url.scheme != 'https' or url.netloc != configured.netloc
-            or url.username or url.password or not path.startswith(prefix)
-            or not re.fullmatch(r'[0-9a-f-]{36}\.(pdf|jpg|jpeg|png|webp|bmp|tif|tiff)', path[len(prefix):])
-            or not url.query or url.fragment):
+            or url.username or url.password or not re.fullmatch(object_path, path)
+            or path != url.path or url.params or url.fragment
+            or len(query) != 1 or query[0][0] != 'token' or not query[0][1]
+            or not isinstance(value, str) or re.search(r'[\x00-\x20\x7f]', value)):
         raise ValueError('Origem do arquivo não permitida.')
     return value
 
@@ -71,11 +82,21 @@ def execute(payload):
             for index, data in enumerate(files):
                 receive_file(data, directory, index)
             return {'ok': True}
-        if action != 'process':
+        if action not in {'process', 'document_info', 'inspect_document'}:
             raise ValueError('Ação inválida.')
         path = receive_file(payload, directory)
+        if action == 'document_info':
+            return document_info(path)
+        if action == 'inspect_document':
+            return inspect_document(path, payload.get('page_numbers'))
         debug = str(Path(directory) / 'debug.png') if payload.get('debug') else None
-        reading = process_image(path, payload.get('answer_key'), debug, question_count=payload.get('question_count', 50))
+        reading = process_image(path, payload.get('answer_key'), debug,
+                                question_count=payload.get('question_count', 50), page_number=payload.get('page_number'))
+        reading['page_number'] = payload.get('page_number') if payload.get('page_number') is not None else 1
+        if payload.get('include_identity', True) and reading['status'] != 'ERRO_LEITURA':
+            identity = extract_page_identity(path, payload.get('page_number') or 1)
+            reading['matricula_erro_msg'] = identity.pop('erro_msg')
+            reading.update(identity)
         reading['debug_image_path'] = None
         if debug and Path(debug).is_file():
             image = cv2.imread(debug)

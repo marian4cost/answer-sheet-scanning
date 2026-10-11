@@ -34,7 +34,7 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
       // Split into lines before flowing, including long teacher feedback, so pages never clip.
       const paragraphs=clean(value).split('\n');
       const totalHeight=height(value,width,size);
-      if (totalHeight < 80) ensure(totalHeight+16);
+      if (totalHeight < 80) ensure(totalHeight+8);
       for (const p of paragraphs) {
         if (!p) {ensure(13);y+=13;continue;}
         let line='';
@@ -80,8 +80,16 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     boxParagraph(report.metodologia,'#fff5df','#e9cf90',7.5);
     if (report.pendencias.length) {heading('Pendências');for (const p of report.pendencias) paragraph(p,8,'#9a6700');}
     if (report.avisos.length) {heading('Observações');for (const p of report.avisos) paragraph(p,8,MUTED);}
-    heading('Redação - avaliação manual',56);
+    heading('Redação - avaliação do professor',56);
     paragraph('Nota: '+(report.redacao.nota_redacao===null?'não informada pelo professor':`${report.redacao.nota_redacao} / 1000`),10,NAVY);
+    if (report.redacao.competencias_redacao?.length === 5) {
+      const cells = report.redacao.competencias_redacao;
+      ensure(56);const cellW=width/5;
+      cells.forEach((value,index)=>{const x=left+index*cellW;doc.rect(x,y,cellW,44).fillAndStroke('#f2f5f8',LINE);text(`COMPETÊNCIA ${index+1}`,x+5,y+6,cellW-10,7,NAVY,true);text(`${value} / 200`,x+5,y+24,cellW-10,10,INK);});
+      y+=56;
+    }
+    if (report.redacao.avaliador_redacao) paragraph('Avaliador: '+report.redacao.avaliador_redacao,8,MUTED);
+    if (report.redacao.situacao_redacao) paragraph('Situação do texto: '+report.redacao.situacao_redacao,8,MUTED);
     paragraph(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.');
     newPage();
     text('DETALHAMENTO DA CORREÇÃO',left,y,width,9,BLUE,true);y+=20;

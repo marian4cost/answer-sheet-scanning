@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { basename, dirname, extname } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { AnswerKey, OMRReading } from '@enem/shared';
+import type { DocumentInfo, DocumentInspection } from '@enem/shared/src/proof-import';
 import { PYTHON_EXECUTABLE, WORKER_PATH, PROJECT_ROOT, OMR_REMOTE_URL, OMR_REMOTE_SECRET, MAX_FILE_SIZE } from './config';
 
 @Injectable()
@@ -93,10 +94,22 @@ export class OmrService {
     }
     return {ok: true};
   }
-  async process(filePath: string, key: AnswerKey, debugPath: string, questionCount = 50): Promise<OMRReading> {
-    if (!OMR_REMOTE_URL) return this.call<OMRReading>({action: 'process', file_path: filePath, answer_key: key, debug_path: debugPath, question_count: questionCount});
-    const result = await this.call<OMRReading & {debug_image_base64?: string}>({action: 'process', file_name: basename(filePath),
-      file_base64: (await readFile(filePath)).toString('base64'), answer_key: key, question_count: questionCount, debug: true});
+  private async documentInput(filePath: string, storageKey?: string) {
+    if (!OMR_REMOTE_URL) return {file_path: filePath};
+    if (storageKey && this.storage.privateCloud) return {file_name: basename(storageKey), file_url: await this.storage.signedDownloadURL(storageKey, 120)};
+    return {file_name: basename(filePath), file_base64: (await readFile(filePath)).toString('base64')};
+  }
+  async documentInfo(filePath: string, storageKey?: string): Promise<DocumentInfo> {
+    return this.call<DocumentInfo>({action: 'document_info', ...await this.documentInput(filePath, storageKey)});
+  }
+  async inspectDocument(filePath: string, pages: number[], storageKey?: string): Promise<DocumentInspection> {
+    return this.call<DocumentInspection>({action: 'inspect_document', ...await this.documentInput(filePath, storageKey), page_numbers: pages});
+  }
+  async process(filePath: string, key: AnswerKey, debugPath: string, questionCount = 50, pageNumber = 1, includeIdentity = false, storageKey?: string): Promise<OMRReading> {
+    const input = await this.documentInput(filePath, storageKey);
+    if (!OMR_REMOTE_URL) return this.call<OMRReading>({action: 'process', ...input, answer_key: key, debug_path: debugPath, question_count: questionCount, page_number: pageNumber, include_identity: includeIdentity});
+    const result = await this.call<OMRReading & {debug_image_base64?: string}>({action: 'process', ...input,
+      answer_key: key, question_count: questionCount, page_number: pageNumber, include_identity: includeIdentity, debug: true});
     const {debug_image_base64, ...reading} = result;
     if (debug_image_base64) {
       if (debug_image_base64.length > 60_000_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(debug_image_base64)) throw new InternalServerErrorException('A imagem de conferência retornada é inválida.');

@@ -38,6 +38,9 @@ ALTER TABLE core_simulado ADD COLUMN IF NOT EXISTS temas TEXT NOT NULL DEFAULT '
 ALTER TABLE core_lotecorrecao ADD COLUMN IF NOT EXISTS gabarito_snapshot TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE core_resultadoaluno ADD COLUMN IF NOT EXISTS mensagem_leitura TEXT NOT NULL DEFAULT '';
 ALTER TABLE core_resultadoaluno ADD COLUMN IF NOT EXISTS total_incertas INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE core_resultadoaluno ADD COLUMN IF NOT EXISTS arquivo_origem TEXT NOT NULL DEFAULT '';
+ALTER TABLE core_resultadoaluno ADD COLUMN IF NOT EXISTS pagina_origem INTEGER;
+ALTER TABLE core_resultadoaluno ADD COLUMN IF NOT EXISTS matricula_fonte TEXT NOT NULL DEFAULT 'manual';
 UPDATE core_lotecorrecao l SET gabarito_snapshot = s.gabarito_oficial
   FROM core_simulado s WHERE l.simulado_id=s.id AND l.gabarito_snapshot='{}';
 CREATE INDEX IF NOT EXISTS omr_envios_simulado ON core_lotecorrecao(simulado_id);
@@ -56,6 +59,10 @@ CREATE TABLE IF NOT EXISTS report_feedback (
   feedback_redacao TEXT NOT NULL DEFAULT '',
   atualizado_em TEXT NOT NULL
 );
+ALTER TABLE report_feedback ADD COLUMN IF NOT EXISTS competencias_redacao TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE report_feedback ADD COLUMN IF NOT EXISTS avaliador_redacao TEXT NOT NULL DEFAULT '';
+ALTER TABLE report_feedback ADD COLUMN IF NOT EXISTS situacao_redacao TEXT NOT NULL DEFAULT '';
+ALTER TABLE report_feedback ADD COLUMN IF NOT EXISTS origem_redacao TEXT NOT NULL DEFAULT 'manual';
 CREATE TABLE IF NOT EXISTS report_deliveries (
   id SERIAL PRIMARY KEY,
   resultado_id INTEGER NOT NULL REFERENCES core_resultadoaluno(id) ON DELETE CASCADE,
@@ -82,6 +89,35 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
   id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, size INTEGER NOT NULL CHECK (size>0 AND size<=20971520),
   purpose TEXT NOT NULL CHECK (purpose IN ('gabarito','prova')), created_at TEXT NOT NULL, consumed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS essay_import_plans (
+  token_hash TEXT PRIMARY KEY, simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
+  payload TEXT NOT NULL CHECK (payload::jsonb IS NOT NULL), expira_em TEXT NOT NULL, criado_em TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS report_access_links (
+  token_hash TEXT PRIMARY KEY, delivery_id INTEGER NOT NULL REFERENCES report_deliveries(id) ON DELETE CASCADE,
+  operation_hash TEXT NOT NULL UNIQUE, criado_em TEXT NOT NULL, expira_em TEXT NOT NULL,
+  ativado_em TEXT, revogado_em TEXT
+);
+CREATE INDEX IF NOT EXISTS report_access_delivery ON report_access_links(delivery_id);
+CREATE INDEX IF NOT EXISTS report_access_expiry ON report_access_links(expira_em);
+CREATE TABLE IF NOT EXISTS proof_import_plans (
+  id TEXT PRIMARY KEY, simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
+  payload TEXT NOT NULL CHECK (payload::jsonb IS NOT NULL), estado TEXT NOT NULL,
+  criado_em TEXT NOT NULL, expira_em TEXT NOT NULL,
+  envio_id INTEGER REFERENCES core_lotecorrecao(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS proof_import_pages (
+  id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES proof_import_plans(id) ON DELETE CASCADE,
+  file_index INTEGER NOT NULL, page_number INTEGER NOT NULL, identity TEXT,
+  matricula TEXT NOT NULL DEFAULT '', estado TEXT NOT NULL DEFAULT 'PENDENTE', claim_id TEXT, claim_at TEXT,
+  resultado_id INTEGER REFERENCES core_resultadoaluno(id) ON DELETE SET NULL,
+  UNIQUE(plan_id, file_index, page_number)
+);
+CREATE INDEX IF NOT EXISTS proof_pages_plan ON proof_import_pages(plan_id);
+ALTER TABLE essay_import_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE report_access_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proof_import_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proof_import_pages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE uploaded_files ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contacts_import_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core_simulado ENABLE ROW LEVEL SECURITY;
@@ -98,7 +134,7 @@ DECLARE role_name TEXT;
 BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits FROM %I', role_name);
+      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages FROM %I', role_name);
     END IF;
   END LOOP;
 END $$;

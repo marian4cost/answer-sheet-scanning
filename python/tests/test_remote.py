@@ -37,6 +37,37 @@ class RemoteApiTests(unittest.TestCase):
         for url in invalid:
             with self.subTest(url=url),self.assertRaises(ValueError): remote.safe_url(url)
         with patch.dict(os.environ,{'SUPABASE_URL':''}),self.assertRaises(ValueError): remote.safe_url(TEST_OBJECT)
+    def test_safe_url_accepts_exact_internal_import_namespaces_with_signed_token(self):
+        for prefix in ('incoming','importing','processing'):
+            for extension in ('pdf','jpg','jpeg','png','webp','bmp','tif','tiff'):
+                url = TEST_OBJECT.replace('/processing/',f'/{prefix}/').replace('.png?',f'.{extension}?')
+                with self.subTest(prefix=prefix,extension=extension):
+                    self.assertEqual(remote.safe_url(url),url)
+    def test_safe_url_rejects_encoded_paths_traversal_noncanonical_ids_and_query_bypasses(self):
+        invalid = [
+            TEST_OBJECT.replace('/processing/','/incoming/../processing/'),
+            TEST_OBJECT.replace('/processing/','/incoming/%2e%2e/processing/'),
+            TEST_OBJECT.replace('/processing/','/incoming%2f'),
+            TEST_OBJECT.replace('/processing/','/%70rocessing/'),
+            TEST_OBJECT.replace('/processing/','/importing%252f'),
+            TEST_OBJECT.replace('/processing/','/importing//'),
+            TEST_OBJECT.replace('/processing/','/incoming/subfolder/'),
+            TEST_OBJECT.replace('/processing/','/reports/'),
+            TEST_OBJECT.replace('/processing/','/processing-other/'),
+            TEST_OBJECT.replace('omr-private','omr-private-public'),
+            TEST_OBJECT.replace('.png?','.png;anything?'),
+            TEST_OBJECT.replace('.png?','%2epng?'),
+            TEST_OBJECT.replace('12345678-1234-1234-1234-123456789abc','------------------------------------'),
+            TEST_OBJECT.replace('12345678-1234-1234-1234-123456789abc','12345678123412341234123456789abc'),
+            TEST_OBJECT.replace('?token=mock-only','?token='),
+            TEST_OBJECT.replace('?token=mock-only','?other=mock-only'),
+            TEST_OBJECT + '&token=second', TEST_OBJECT + '&redirect=https://evil.example.com',
+            TEST_OBJECT + '&', '\n' + TEST_OBJECT,
+            TEST_OBJECT.replace('/processing/','/proce\tssing/'),
+        ]
+        for url in invalid:
+            with self.subTest(url=url),self.assertRaises(ValueError):
+                remote.safe_url(url)
     def test_redirects_are_never_followed_to_another_url(self):
         with self.assertRaises(ValueError): remote.NoRedirect().redirect_request(None,None,302,'Found',{},'https://evil.example.com')
     def test_health_does_not_read_files_or_send_requests(self):

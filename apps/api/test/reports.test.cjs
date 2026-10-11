@@ -10,6 +10,8 @@ const temp = mkdtempSync(join(tmpdir(), 'enem-reports-tests-'));
 process.env.DATABASE_PATH = join(temp, 'reports.sqlite3');
 process.env.DATABASE_URL = '';
 process.env.MEDIA_ROOT = join(temp, 'media');
+Object.assign(process.env,{STORAGE_MODE:'local',OMR_REMOTE_URL:'',AUTH_ENABLED:'false',EMAILJS_ENABLED:'false',EMAILJS_SERVICE_ID:'',EMAILJS_TEMPLATE_ID:'',EMAILJS_PUBLIC_KEY:'',EMAILJS_PRIVATE_KEY:'',RESEND_API_KEY:'',SMTP_HOST:'',SMTP_USER:'',SMTP_PASS:'',WEB_URL:'https://ficticio.example.com',REPORT_LINK_TTL_DAYS:'7',CRON_SECRET:''});
+delete process.env.VERCEL;
 const {DatabaseService} = require('../dist/database.service.js');
 const {SimuladosService} = require('../dist/simulados.service.js');
 const {ContactsService, validEmail} = require('../dist/contacts.service.js');
@@ -22,7 +24,7 @@ let db, contacts, reports, simulados, result1, result2, result3, simuladoId, gat
 let sent = [];
 before(async () => {
   db = new DatabaseService(); contacts = new ContactsService(db); simulados = new SimuladosService(db, {});
-  gateway = {availability: () => ({envio_disponivel: true, envio_motivo: 'Simulador isolado de email.'}), deliver: async (report, pdf, idem) => {sent.push({report, pdf, idem}); return 'fake-' + sent.length;}};
+  gateway = {availability: () => ({envio_disponivel: true, envio_motivo: 'Simulador isolado de email.'}), deliver: async (report, accessUrl, idem, expiry) => {sent.push({report, accessUrl, idem, expiry}); return 'fake-' + sent.length;}};
   reports = new ReportsService(db, simulados, contacts, gateway);
   const sim = await db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)', 'Simulado fictício de validação', new Date().toISOString(), JSON.stringify(key), 50, JSON.stringify(themes));
   simuladoId = sim.lastInsertRowid;
@@ -93,13 +95,16 @@ test('linhas sem email só são ignoradas com opção explícita e aparecem nos 
   assert.equal(await contacts.get('000002'),undefined);
   const wrong=await contacts.preview(Buffer.from('matricula,email\n000004,invalid-email\n'),'wrong.csv',true);assert.equal(wrong.token,'');assert.equal(wrong.erros.length,1);
 });
-test('EmailJS envia boletim completo no corpo, com questões e sem prometer anexo',async()=>{
+test('EmailJS envia mensagem curta com link temporário sem notas, respostas ou anexos',async()=>{
   const report=await reports.report(result1),calls=[];
   const gateway=new ReportEmailGateway({configured:()=>true,send:async(...args)=>{calls.push(args);return 'emailjs-accepted';}});
   assert.equal(gateway.availability().envio_disponivel,true);
-  await gateway.deliver(report,Buffer.from('fake PDF'),'fake-idempotency');
+  const accessUrl='https://ficticio.example.com/boletim#'+require('node:crypto').randomBytes(32).toString('base64url');
+  await gateway.deliver(report,accessUrl,'fake-idempotency','2030-01-01T12:00:00.000Z');
   assert.equal(calls.length,1);assert.equal(calls[0][0],report.email);
-  assert.match(calls[0][2],/Questões/);assert.match(calls[0][2],/INCORRETA/);assert.doesNotMatch(calls[0][2],/PDF em anexo/);
+  assert.match(calls[0][2],/Ver meu boletim/);assert.ok(calls[0][2].includes(accessUrl));
+  assert.doesNotMatch(calls[0][2],/Questões|INCORRETA|PDF em anexo|<table/);
+  assert.ok(!calls[0][2].includes(report.matricula));assert.ok(!calls[0][2].includes(report.nome));
 });
 test('mudanças de contatos são avisadas e prévia antiga não sobrescreve uma atualização posterior', async () => {
   const first = await contacts.preview(Buffer.from('matricula,email,nome\n000123,novo@example.com,Novo\n'), 'update.csv'); assert.equal(first.avisos.length, 1);
@@ -167,7 +172,7 @@ test('email não fica disponível sem um provedor/remetente e nenhum teste acess
   const before = Object.fromEntries(keys.map(key => [key,process.env[key]]));
   keys.forEach(key => delete process.env[key]);
   try {const real = new ReportEmailGateway(); assert.equal(real.availability().envio_disponivel,false);
-    await assert.rejects(real.deliver(await reports.report(result1),Buffer.from('fake'),'id'), /remetente válido/);
+    await assert.rejects(real.deliver(await reports.report(result1),'https://ficticio.example.com/boletim#'+'x'.repeat(43),'id'), /remetente válido/);
   } finally {for (const key of keys) if (before[key] === undefined) delete process.env[key]; else process.env[key] = before[key];}
 });
 test('plano só aceita IDs do simulado, ignora ID duplicado e vincula matrícula/email/hash para confirmação', async () => {
@@ -191,7 +196,10 @@ test('envio confirmado usa destinatário exato e é idempotente em novo serviço
   const plan = await reports.plan(simuladoId,[result1]);
   const [a,b] = await Promise.all([reports.send(simuladoId,plan.token,'sim'),reports.send(simuladoId,plan.token,'sim')]);
   assert.equal(a.total_enviados + b.total_enviados,1); assert.equal(sent.length,1); assert.equal(sent[0].report.email,'aluno@example.com');
-  assert.equal(sent[0].report.matricula,'000123'); assert.equal(sent[0].report.resultado_id,result1); assert.equal(sent[0].pdf.subarray(0,5).toString(),'%PDF-');
+  assert.equal(sent[0].report.matricula,'000123'); assert.equal(sent[0].report.resultado_id,result1);
+  const access=new URL(sent[0].accessUrl);assert.equal(access.pathname,'/boletim');assert.match(access.hash.slice(1),/^[A-Za-z0-9_-]{43}$/);assert.equal(access.search,'');
+  const pdf=await reports.publicPdf(access.hash.slice(1));assert.equal(pdf.subarray(0,5).toString(),'%PDF-');
+  assert.match(pdfText(pdf),/9,20 \/ 10/);
   const reopened = new ReportsService(db,simulados,contacts,gateway); const replay = await reopened.send(simuladoId,plan.token,'sim');
   assert.equal(replay.total_enviados,0); assert.equal(replay.total_ignorados,1); assert.equal(replay.resultados[0].status,'ENVIADO'); assert.equal(sent.length,1);
 });

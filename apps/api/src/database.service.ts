@@ -121,6 +121,9 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
     }
     if (!columns('core_simulado').some(column => column.name === 'total_questoes')) this.sqlite!.exec('ALTER TABLE core_simulado ADD COLUMN total_questoes INTEGER NOT NULL DEFAULT 50');
     if (!columns('core_simulado').some(column => column.name === 'temas')) this.sqlite!.exec("ALTER TABLE core_simulado ADD COLUMN temas TEXT NOT NULL DEFAULT '[]'");
+    if (!columns('core_resultadoaluno').some(column => column.name === 'arquivo_origem')) this.sqlite!.exec("ALTER TABLE core_resultadoaluno ADD COLUMN arquivo_origem TEXT NOT NULL DEFAULT ''");
+    if (!columns('core_resultadoaluno').some(column => column.name === 'pagina_origem')) this.sqlite!.exec('ALTER TABLE core_resultadoaluno ADD COLUMN pagina_origem INTEGER');
+    if (!columns('core_resultadoaluno').some(column => column.name === 'matricula_fonte')) this.sqlite!.exec("ALTER TABLE core_resultadoaluno ADD COLUMN matricula_fonte TEXT NOT NULL DEFAULT 'manual'");
     this.sqlite!.exec(`
       CREATE TABLE IF NOT EXISTS email_provider_slots (provider TEXT PRIMARY KEY, next_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS auth_attempt_limits (scope_hash TEXT PRIMARY KEY, window_at INTEGER NOT NULL, total INTEGER NOT NULL);
@@ -149,8 +152,35 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
         token_hash TEXT PRIMARY KEY, simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
         payload TEXT NOT NULL CHECK(json_valid(payload)), expira_em TEXT NOT NULL, criado_em TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS essay_import_plans (
+        token_hash TEXT PRIMARY KEY, simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
+        payload TEXT NOT NULL CHECK(json_valid(payload)), expira_em TEXT NOT NULL, criado_em TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS report_access_links (
+        token_hash TEXT PRIMARY KEY, delivery_id INTEGER NOT NULL REFERENCES report_deliveries(id) ON DELETE CASCADE,
+        operation_hash TEXT NOT NULL UNIQUE, criado_em TEXT NOT NULL, expira_em TEXT NOT NULL,
+        ativado_em TEXT, revogado_em TEXT
+      );
+      CREATE INDEX IF NOT EXISTS report_access_delivery ON report_access_links(delivery_id);
+      CREATE INDEX IF NOT EXISTS report_access_expiry ON report_access_links(expira_em);
+      CREATE TABLE IF NOT EXISTS proof_import_plans (
+        id TEXT PRIMARY KEY, simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
+        payload TEXT NOT NULL CHECK(json_valid(payload)), estado TEXT NOT NULL, criado_em TEXT NOT NULL, expira_em TEXT NOT NULL,
+        envio_id INTEGER REFERENCES core_lotecorrecao(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS proof_import_pages (
+        id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES proof_import_plans(id) ON DELETE CASCADE,
+        file_index INTEGER NOT NULL, page_number INTEGER NOT NULL, identity TEXT,
+        matricula TEXT NOT NULL DEFAULT '', estado TEXT NOT NULL DEFAULT 'PENDENTE', claim_id TEXT, claim_at TEXT,
+        resultado_id INTEGER REFERENCES core_resultadoaluno(id) ON DELETE SET NULL,
+        UNIQUE(plan_id,file_index,page_number)
+      );
+      CREATE INDEX IF NOT EXISTS proof_pages_plan ON proof_import_pages(plan_id);
     `);
     if (!columns('student_contacts').some(column => column.name === 'curso')) this.sqlite!.exec("ALTER TABLE student_contacts ADD COLUMN curso TEXT NOT NULL DEFAULT ''");
+    for (const [name, initial] of [['competencias_redacao', '[]'], ['avaliador_redacao', ''], ['situacao_redacao', ''], ['origem_redacao', 'manual']]) {
+      if (!columns('report_feedback').some(column => column.name === name)) this.sqlite!.exec(`ALTER TABLE report_feedback ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${initial}'`);
+    }
   }
   private async sqliteLock<T>(work: () => T | Promise<T>): Promise<T> {
     const previous = this.sqliteQueue;

@@ -3,5 +3,6 @@
   "buildCommand": "npm run build -w @enem/api",
   "outputDirectory": "public",
   "functions": {"api/index.ts": {"maxDuration": 300, "includeFiles": "{dist/**,assets/**,../../node_modules/pdfkit/js/standard-fonts/**}"}},
-  "rewrites": [{"source": "/:path*", "destination": "/api/index"}]
+  "rewrites": [{"source": "/:path*", "destination": "/api/index"}],
+  "crons": [{"path":"/api/boletim/limpar","schedule":"0 8 * * *"}]
 }
