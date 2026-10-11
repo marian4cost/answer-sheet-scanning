@@ -56,7 +56,7 @@ export function Dashboard() {
           <label className="official-file" htmlFor="gabarito_pdf"><span className="upload-icon"><FileCheck2 size={30}/></span><strong>Folha do gabarito oficial</strong><span>{selected || 'Selecione o PDF ou uma imagem preenchida'}</span>
             <input id="gabarito_pdf" name="gabarito_pdf" type="file" accept={ACCEPT} disabled={busy} onChange={event => {const chosen = event.target.files?.[0] || null; setSelected(chosen?.name || ''); setFile(chosen); setKey(null);}}/>
           </label>
-          <p className="help">{FORMAT_TEXT}. Até 20 MB. Uma alternativa por questão, com a folha inteira e legível. Em PDFs, lemos a primeira página.</p>
+          <p className="help">{FORMAT_TEXT}. Até 20 MB. Uma alternativa por questão, com a folha inteira e legível. O PDF do gabarito oficial deve conter uma única página.</p>
           <div className="actions"><button className="button outline" type="button" disabled={busy || !file} onClick={read}>{busy ? 'Lendo...' : 'Ler folha para conferir'}</button><button className="button outline" type="button" disabled={busy} onClick={() => setKey({})}>Digitar gabarito</button></div>
           {key && <KeyEditor count={count} value={key} onChange={setKey} disabled={busy}/>}
           <ThemeFields count={count} value={themes} onChange={setThemes} disabled={busy}/>
