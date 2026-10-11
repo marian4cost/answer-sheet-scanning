@@ -17,19 +17,25 @@ export function PublicReport() {
   const token = useRef<string|null>(null);
   const [access,setAccess] = useState<Access|null>(null), [error,setError] = useState(''), [loading,setLoading] = useState(true), [downloading,setDownloading] = useState(false);
   useEffect(()=>{
-    // Keep the credential only in memory; remove it before making the POST request.
-    if (token.current === null) {
+    let controller: AbortController | undefined;
+    const consult = () => {
+      // Keep the credential only in memory; remove it before making the POST request.
       const fragment = window.location.hash.slice(1);
-      window.history.replaceState(null,'',window.location.pathname);
-      token.current = /^[A-Za-z0-9_-]{43}$/.test(fragment) ? fragment : '';
-    }
-    if (!token.current) { setError(INVALID_LINK); setLoading(false); return; }
-    const controller = new AbortController();
-    fetch('/api/boletim/consultar',{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json','X-OMR-Client':'web'},body:JSON.stringify({token:token.current}),signal:controller.signal})
+      if (fragment) {
+        window.history.replaceState(null,'',window.location.pathname);
+        token.current = /^[A-Za-z0-9_-]{43}$/.test(fragment) ? fragment : '';
+      } else if (token.current === null) token.current = '';
+      controller?.abort();setAccess(null);setError('');setLoading(true);
+      if (!token.current) { setError(INVALID_LINK); setLoading(false); return; }
+      const active = controller = new AbortController();
+      fetch('/api/boletim/consultar',{method:'POST',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json','X-OMR-Client':'web'},body:JSON.stringify({token:token.current}),signal:active.signal})
       .then(async response=>{ if (!response.ok) throw await failure(response); return response.json() as Promise<Access>; })
-      .then(value=>setAccess(value)).catch(reason=>{if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : INVALID_LINK);})
-      .finally(()=>{if (!controller.signal.aborted) setLoading(false);});
-    return ()=>controller.abort();
+      .then(value=>{if (!active.signal.aborted) setAccess(value);}).catch(reason=>{if (!active.signal.aborted) setError(reason instanceof Error ? reason.message : INVALID_LINK);})
+      .finally(()=>{if (!active.signal.aborted) setLoading(false);});
+    };
+    consult();
+    window.addEventListener('hashchange',consult);
+    return ()=>{window.removeEventListener('hashchange',consult);controller?.abort();};
   },[]);
   async function download() {
     if (!token.current || downloading) return;
