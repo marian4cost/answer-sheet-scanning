@@ -283,13 +283,13 @@ def _text_coordinates(binary, groups):
     return coordinates, radii
 
 
-def locate_grid(image, question_count=50):
+def _locate_grid_once(image, question_count, upsampling):
     h, w = image.shape[:2]
     # Normaliza a escala da detecção; 50–60 linhas usam a mesma resolução.
     # Ampliar uma foto muito pequena não recupera detalhes que ela perdeu.
     target_width = CANVAS_WIDTH
     image = cv2.resize(image, (target_width, round(h * target_width / w)),
-                       interpolation=cv2.INTER_AREA if w > target_width else cv2.INTER_CUBIC)
+                       interpolation=cv2.INTER_AREA if w > target_width else upsampling)
     for rotation in (None, cv2.ROTATE_180, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE):
         oriented = image if rotation is None else cv2.rotate(image, rotation)
         oh, ow = oriented.shape[:2]
@@ -324,6 +324,18 @@ def locate_grid(image, question_count=50):
                 continue
     rows = (question_count + 1) // 2
     raise ValueError(f'Modelo não reconhecido para {question_count} questões: use duas colunas de {rows} e {question_count // 2} questões (A a E), numeradas de cima para baixo, ou o modelo compatível com quatro marcadores. Confira a quantidade cadastrada e envie a folha inteira e legível.')
+
+
+def locate_grid(image, question_count=50):
+    try:
+        return _locate_grid_once(image, question_count, cv2.INTER_CUBIC)
+    except ValueError:
+        if image.shape[1] >= CANVAS_WIDTH:
+            raise
+        # A interpolação cúbica pode criar halos em letras pequenas e partir
+        # uma linha em vários contornos. Tenta a linear na foto original,
+        # mantendo todas as validações de colunas, linhas e alternativas.
+        return _locate_grid_once(image, question_count, cv2.INTER_LINEAR)
 
 
 def measure_density(binary, center, radii):

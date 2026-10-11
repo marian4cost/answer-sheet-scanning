@@ -19,6 +19,7 @@ MAX_INSPECTION_PAGES = 5
 MIN_OCR_CONFIDENCE = .92
 _OCR_LOCK = RLock()
 _LABEL = re.compile(r'\bmatricula\b\s*[:：#-]?\s*', re.IGNORECASE)
+_OCR_LABEL = re.compile(r'\b(matr[a-z0-9]{4,6})\s*[:：#-]\s*', re.IGNORECASE)
 _VALUE = re.compile(r'([0-9]{4,30})(?![0-9A-Za-z])')
 
 
@@ -28,11 +29,38 @@ def _normalized(text):
                    if not unicodedata.combining(char))
 
 
-def labelled_candidates(text):
-    """Retorna valores textuais únicos e informa se um rótulo foi encontrado."""
+def _single_label_error(value):
+    """Até uma substituição, inserção ou ausência no rótulo; nunca no número."""
+    expected = 'matricula'
+    value = value.lower()
+    if abs(len(value) - len(expected)) > 1:
+        return False
+    if len(value) == len(expected):
+        return sum(a != b for a, b in zip(value, expected)) <= 1
+    shorter, longer = sorted((value, expected), key=len)
+    i = j = differences = 0
+    while i < len(shorter) and j < len(longer):
+        if shorter[i] == longer[j]:
+            i += 1
+        else:
+            differences += 1
+            if differences > 1:
+                return False
+        j += 1
+    return True
+
+
+def labelled_candidates(text, *, allow_ocr_errors=False):
+    """Extrai dígitos exatos; tolerância no rótulo só para texto vindo do OCR."""
     text = _normalized(text)
     candidates, labelled = [], False
-    for label in _LABEL.finditer(text):
+    labels = list(_LABEL.finditer(text))
+    if allow_ocr_errors:
+        # Uma foto desfocada pode trocar o 'a' de Matrícula por 's'. Exige
+        # prefixo matr, delimitador e no máximo um erro, mantendo o limiar OCR.
+        labels.extend(label for label in _OCR_LABEL.finditer(text)
+                      if _single_label_error(label.group(1)))
+    for label in labels:
         labelled = True
         value = _VALUE.match(text, label.end())
         if value and value.group(1) not in candidates:
@@ -83,7 +111,7 @@ def _ocr_candidates(output):
     boxes = output.boxes if output.boxes is not None else []
     candidates, labelled, confidences = [], False, []
     for index, (text, confidence) in enumerate(zip(texts, scores)):
-        values, has_label = labelled_candidates(text)
+        values, has_label = labelled_candidates(text, allow_ocr_errors=True)
         if not has_label:
             continue
         labelled = True
@@ -103,7 +131,7 @@ def _ocr_candidates(output):
                     following.append((x, j))
             if following:
                 j = min(following)[1]
-                values, _ = labelled_candidates(text + ' ' + texts[j])
+                values, _ = labelled_candidates(text + ' ' + texts[j], allow_ocr_errors=True)
                 confidence = min(float(confidence), float(scores[j]))
         for value in values:
             candidates.append(value)

@@ -80,6 +80,35 @@ class DocumentTests(unittest.TestCase):
         self.assertIsNone(uncertain['matricula_detectada'])
         self.assertEqual(identity_result()['matricula_status'], 'AUSENTE')
 
+    def test_ocr_label_tolerates_one_error_but_never_repairs_enrollment_digits(self):
+        for label in ('Matriculs', 'Matrlcula', 'Matricla', 'Matriculas'):
+            text = label + ': 0000654321'
+            with self.subTest(label=label):
+                self.assertEqual(labelled_candidates(text), ([], False))
+                self.assertEqual(labelled_candidates(text, allow_ocr_errors=True),
+                                 (['0000654321'], True))
+        for text in ('Materiais: 0000654321', 'Matriz: 0000654321',
+                     'Matrlculs: 0000654321', 'Matriculs 0000654321'):
+            with self.subTest(text=text):
+                self.assertEqual(labelled_candidates(text, allow_ocr_errors=True), ([], False))
+        self.assertEqual(labelled_candidates('Matriculs: 00006O4321', allow_ocr_errors=True),
+                         ([], True))
+
+    def test_ocr_misspelled_label_retains_confidence_and_detects_conflicts(self):
+        from types import SimpleNamespace
+        output = SimpleNamespace(txts=['Matriculs: 0000654321'], scores=[.97], boxes=[])
+        values, labelled, confidence = _ocr_candidates(output)
+        self.assertEqual(values, ['0000654321'])
+        self.assertTrue(labelled)
+        self.assertEqual(confidence, .97)
+        self.assertEqual(identity_result(values, source='ocr', confidence=.91)['matricula_status'],
+                         'INCERTA')
+        output.txts = ['Matriculs: 0000654321', 'Matrlcula: 0000654322']
+        output.scores = [.97, .98]
+        values, _, confidence = _ocr_candidates(output)
+        self.assertEqual(identity_result(values, source='ocr', confidence=confidence)['matricula_status'],
+                         'AMBIGUA')
+
     def test_digital_pdf_extracts_each_page_without_ocr_or_filename(self):
         path = self.directory / '9999999999.pdf'
         digital_pdf(path, ['Data: 09/10/2026\nMatrícula: 0000123456',
