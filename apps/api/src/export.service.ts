@@ -118,6 +118,15 @@ export class ExportService {
       styleTable(essays);
       essays.getColumn(12).alignment={wrapText:true,vertical:'top'};
     }
+    for (const tab of workbook.worksheets) {
+      tab.getRow(1).eachCell((cell, column) => {
+        if (cell.value === 'Matrícula') {
+          tab.getColumn(column).numFmt = '@';
+          tab.getColumn(column).width = Math.max(tab.getColumn(column).width || 0, 18);
+        }
+        if (cell.value === 'Data_Envio') tab.getColumn(column).width = 24;
+      });
+    }
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 }
