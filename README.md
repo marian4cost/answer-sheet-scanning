@@ -90,7 +90,7 @@ Cada competência aceita 0 a 200 pontos; a nota geral é a soma de 0 a 1000. Se 
 
 O email contém `/boletim#TOKEN`: a página remove o fragmento da barra de endereço e consulta a API por POST. O token de 32 bytes não é guardado no navegador nem em texto claro no banco. A autorização dura sete dias por padrão (`REPORT_LINK_TTL_DAYS`), funciona durante o prazo sem ser consumida no primeiro acesso e bloqueia consultas quando expirada, revogada ou quando o conteúdo foi alterado. A ação **Reemitir link** exige nova revisão e revoga o acesso anterior mantendo a entrega registrada.
 
-`AUTH_ENABLED=true` protege os recursos do professor. Apenas os POSTs `/api/boletim/consultar` e `/api/boletim/pdf` aceitam acesso do aluno, sempre com token válido. Respostas usam `private, no-store`, sem referrer e sem indexação. A limpeza diária configurada na API Vercel usa `CRON_SECRET` (mínimo 32 caracteres) às 08h UTC: remove autorizações e prévias expiradas, mantendo resultados acadêmicos. Nenhum PDF de boletim é persistido na nuvem.
+A autenticação é sempre obrigatória nos recursos do professor. Apenas os POSTs `/api/boletim/consultar` e `/api/boletim/pdf` aceitam acesso do aluno, sempre com token válido. Respostas usam `private, no-store`, sem referrer e sem indexação. A limpeza diária configurada na API Vercel usa `CRON_SECRET` (mínimo 32 caracteres) às 08h UTC: remove autorizações e prévias expiradas, mantendo resultados acadêmicos. Nenhum PDF de boletim é persistido na nuvem.
 
 ## Email opcional dos boletins
 
@@ -110,13 +110,13 @@ Os testes simulam os provedores, sem enviar emails reais. Importar a planilha n�
 
 ## Login dos professores
 
-Configure `AUTH_ENABLED=true` para exigir login por email e senha. `AUTH_REGISTRATION_ENABLED=true` permite cadastro de qualquer email, conforme a escolha do responsável: todas as contas com email confirmado podem acessar os simulados, contatos e boletins. Com a flag de cadastro desativada, valem apenas `TEACHER_EMAILS` ou os papéis `teacher`/`admin` em metadados administrativos do Supabase. Na nuvem, uma flag de login ausente ou com valor diferente de `false` mantém a autenticação exigida.
+O login por email e senha é sempre exigido. `AUTH_REGISTRATION_ENABLED=true` permite cadastro de qualquer email, conforme a escolha do responsável: todas as contas com email confirmado podem acessar os simulados, contatos e boletins. Com a flag de cadastro desativada, valem apenas `TEACHER_EMAILS` ou os papéis `teacher`/`admin` em metadados administrativos do Supabase. A antiga variável `AUTH_ENABLED` não permite mais desativar a autenticação, localmente ou na nuvem.
 
 O cadastro pede email, senha de 8 a 128 caracteres e confirmação da senha. O NestJS gera um OTP de cadastro no **Supabase Auth** e envia o código pelo **EmailJS**. A conta só recebe sessão após o Supabase confirmar o código. Senhas são tratadas pelo Supabase Auth; não são armazenadas em tabelas da aplicação, no EmailJS nem no navegador. Os códigos também não aparecem em respostas da API ou logs. A aplicação limita solicitações por email e IP em banco compartilhado entre deployments.
 
 As duas contas provisionadas pelo responsável usam login por senha. A interface mantém a alternativa de acesso por código. O SMTP padrão do Supabase é apenas uma alternativa legada para login por código quando EmailJS não está configurado; ele não permite atender usuários externos sem um SMTP próprio.
 
-1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED=true`, `AUTH_REGISTRATION_ENABLED=true` e as quatro variáveis EmailJS na API.
+1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_REGISTRATION_ENABLED=true` e as quatro variáveis EmailJS na API.
 2. Habilite email no Supabase Auth e mantenha a confirmação de email. Para compatibilidade com links legados, cadastre a origem real em Site URL e a rota `/login` nas URLs de redirecionamento.
 3. Na tela `/login`, entre com email e senha ou selecione **Criar conta**, defina a senha e informe o código recebido por email. O fluxo EmailJS usa o Supabase apenas para gerar/verificar o OTP e não depende do SMTP padrão do Supabase.
 
@@ -157,7 +157,6 @@ SUPABASE_SERVICE_ROLE_KEY    chave de servidor para Storage privado
 SUPABASE_STORAGE_BUCKET=omr-private
 OMR_REMOTE_URL              URL HTTPS do Python terminada em /api/omr
 OMR_REMOTE_SECRET           segredo aleatório longo, igual ao do Python
-AUTH_ENABLED=true           exige login de professor
 AUTH_REGISTRATION_ENABLED=true  cadastro com código por email
 REPORT_LINK_TTL_DAYS=7       prazo do link individual
 CRON_SECRET                 segredo da limpeza diária, mínimo 32 caracteres
@@ -175,7 +174,7 @@ O NestJS 12 publica módulos ESM; esta aplicação CommonJS usa o suporte `requi
 
 **Python:** `OMR_REMOTE_SECRET` igual ao da API, `SUPABASE_URL` e `SUPABASE_STORAGE_BUCKET`. Recebe URL assinada e não precisa da chave de serviço Supabase. Rejeita origens externas, redirects e chamadas sem segredo. Retorna leitura/espelho; NestJS calcula notas.
 
-Confira o deployment real antes de divulgar um endereço. Faça smoke tests de `/api/health`, `/api/auth/config`, acesso direto quando `AUTH_ENABLED=false` ou login autorizado quando `true`, chave revisada, provas sintéticas de 50/60 questões, persistência após novo deployment, espelho/PDF e contatos fictícios. Email real depende de destinatário autorizado e confirmação na interface.
+Confira o deployment real antes de divulgar um endereço. Faça smoke tests de `/api/health`, `/api/auth/config`, bloqueio do acesso anônimo e login autorizado, chave revisada, provas sintéticas de 50/60 questões, persistência após novo deployment, espelho/PDF e contatos fictícios. Email real depende de destinatário autorizado e confirmação na interface.
 
 ## Migração SQLite para PostgreSQL
 
@@ -203,7 +202,7 @@ A migração de 10/10/2026 conservou **4 simulados, 4 lotes, 19 resultados e 19 
 ## Testes e evidências
 
 ```bash
-DATABASE_URL='' STORAGE_MODE=local OMR_REMOTE_URL='' AUTH_ENABLED=false npm test
+DATABASE_URL='' STORAGE_MODE=local OMR_REMOTE_URL='' npm test
 npm run typecheck
 npm run build
 node scripts/test-postgres-schema.mjs

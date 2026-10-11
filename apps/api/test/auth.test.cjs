@@ -54,17 +54,18 @@ test('role teacher usa apenas app_metadata validado e não aceita metadados edit
   assert.equal(teacherAllowed({email:'outra@example.com',user_metadata:{role:'teacher'}}),false);
   assert.equal(teacherAllowed({email:'outra@example.com',app_metadata:{role:'student'}}),false);
 });
-test('flag false desativa login explicitamente, inclusive na nuvem; demais valores preservam o padrão',()=>{
-  process.env.AUTH_ENABLED='false';delete process.env.VERCEL;assert.equal(authRequired(),false);
-  process.env.VERCEL='1';assert.equal(authRequired(),false);
-  for (const value of ['true','','FALSE','invalid']) {process.env.AUTH_ENABLED=value;assert.equal(authRequired(),true);}
-  delete process.env.AUTH_ENABLED;assert.equal(authRequired(),true);
+test('autenticação é obrigatória localmente e na nuvem, inclusive com a antiga flag false',()=>{
+  for (const cloud of [undefined,'1']) {
+    if (cloud) process.env.VERCEL=cloud; else delete process.env.VERCEL;
+    for (const value of ['false','true','','FALSE','invalid']) {process.env.AUTH_ENABLED=value;assert.equal(authRequired(),true);}
+    delete process.env.AUTH_ENABLED;assert.equal(authRequired(),true);
+  }
 });
-test('login desativado libera leitura e gravação sem sessão ou consulta ao Supabase',async(t)=>{
+test('a antiga flag false não libera leitura nem gravação sem sessão',async(t)=>{
   process.env.VERCEL='1';process.env.AUTH_ENABLED='false';
-  const calls=provider(t,{email:'teacher@example.com'}),auth=new AuthService();assert.equal(auth.config().required,false);
+  const calls=provider(t,{email:'teacher@example.com'}),auth=new AuthService();assert.equal(auth.config().required,true);
   for(const [method,path] of [['GET','/api/simulados'],['POST','/api/simulados'],['GET','/api/contatos'],['GET','/api/resultados/1/boletim/pdf']]) {
-    const res=await middleware(auth,request({method,path}));assert.equal(res.nextCalls,1);assert.equal(res.headers['Cache-Control'],'private, no-store');
+    const res=await middleware(auth,request({method,path}));assert.equal(res.nextCalls,0);assert.equal(res.statusCode,401);assert.equal(res.headers['Cache-Control'],'private, no-store');
   }
   assert.equal(calls.length,0);
 });
@@ -140,7 +141,7 @@ test('login não cria sessão se a verificação do código falha ou retorna con
 test('logout limpa o mesmo cookie com proteção de transporte e sem divulgar token',()=>{
   const res=response();assert.deepEqual(new AuthService().logout(res),{ok:true});assert.equal(res.cleared[0][0],'enem_session');assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
 });
-test('cookies continuam Secure na nuvem quando o login está temporariamente desativado',async(t)=>{
+test('cookies continuam Secure na nuvem mesmo com a antiga flag false',async(t)=>{
   process.env.VERCEL='1';process.env.AUTH_ENABLED='false';provider(t,{email:'teacher@example.com'});
   const auth=new AuthService(),res=response();await auth.session('mock-magic-link-token',res);auth.logout(res);
   assert.equal(res.cookies[0][2].secure,true);assert.equal(res.cleared[0][1].secure,true);

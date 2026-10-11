@@ -7,8 +7,7 @@ import { sha256 } from './contacts.service';
 
 const COOKIE = 'enem_session';
 export function authRequired() {
-  if (process.env.AUTH_ENABLED === 'false') return false;
-  return process.env.AUTH_ENABLED === 'true' || !!process.env.VERCEL;
+  return true;
 }
 function cookieSecure() { return !!process.env.VERCEL || authRequired(); }
 export function teacherAllowed(user: {email?: string; email_confirmed_at?: string; app_metadata?: {role?: string}}) {
@@ -118,7 +117,6 @@ export class AuthService {
   }
   middleware() {
     return async (request: Request, response: Response, next: NextFunction) => {
-      if (!authRequired()) { response.setHeader('Cache-Control', 'private, no-store'); return next(); }
       response.setHeader('Cache-Control','private, no-store');
       const publicReport = (request.method === 'POST' && ['/api/boletim/consultar','/api/boletim/pdf'].includes(request.path)) || (request.method === 'GET' && request.path === '/api/boletim/limpar');
       if (publicReport) { response.setHeader('Referrer-Policy','no-referrer'); response.setHeader('X-Robots-Tag','noindex, nofollow, noarchive'); return next(); }

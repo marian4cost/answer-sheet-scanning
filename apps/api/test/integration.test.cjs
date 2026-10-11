@@ -11,7 +11,7 @@ const temp = mkdtempSync(join(tmpdir(), 'enem-nest-tests-'));
 process.env.DATABASE_URL = '';
 process.env.OMR_REMOTE_URL = '';
 process.env.STORAGE_MODE = 'local';
-process.env.AUTH_ENABLED = 'false';
+process.env.AUTH_ENABLED = 'true';
 delete process.env.VERCEL;
 process.env.DATABASE_PATH = join(temp, 'test.sqlite3');
 process.env.MEDIA_ROOT = join(temp, 'media');
@@ -54,6 +54,7 @@ legacy.prepare('INSERT INTO core_simulado VALUES(?,?,?,?)').run(42, 'Simulado le
 legacy.prepare('INSERT INTO core_lotecorrecao VALUES(?,?,?)').run(42, '2026-10-08 17:05:00', 42);
 legacy.prepare('INSERT INTO core_resultadoaluno VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(42, 'LEGADO', JSON.stringify(key), 50, 0, 0, 0, 100, null, 'SUCESSO', 42, '', 0);
 legacy.close();
+const {AuthService}=require('../dist/auth.js');
 const {createApplication} = require('../dist/bootstrap.js');
 const {grade} = require('../dist/grading.js');
 const variablePhotoPath = join(temp, 'sixty.png');
@@ -77,7 +78,9 @@ function proofs(names, buffer = photo, matriculas) {
   if (matriculas !== undefined) form.append('matriculas', JSON.stringify(matriculas));
   return form;
 }
-before(async () => { app = await createApplication(false); await app.listen(0, '127.0.0.1'); base = `http://127.0.0.1:${app.getHttpServer().address().port}/api`; });
+before(async () => { app = await createApplication(false);
+  // Somente este processo de teste usa uma identidade fictícia; a aplicação mantém o middleware ativo.
+  app.get(AuthService).user=async()=>({email:'professor-ficticio@example.test'}); await app.listen(0, '127.0.0.1'); base = `http://127.0.0.1:${app.getHttpServer().address().port}/api`; });
 after(async () => { if (app) await app.close(); rmSync(temp, {recursive: true, force: true}); });
 
 test('migra o esquema do SQLite sem perder IDs, notas ou respostas existentes', async () => {

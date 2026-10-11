@@ -6,8 +6,9 @@ const {join,resolve} = require('node:path');
 const {execFileSync,spawnSync} = require('node:child_process');
 const ExcelJS = require('exceljs');
 const root=resolve(__dirname,'../../..'),temp=mkdtempSync(join(tmpdir(),'enem-document-workflow-'));
-Object.assign(process.env,{DATABASE_URL:'',DATABASE_PATH:join(temp,'workflow.sqlite3'),MEDIA_ROOT:join(temp,'media'),STORAGE_MODE:'local',OMR_REMOTE_URL:'',OMR_REMOTE_SECRET:'',AUTH_ENABLED:'false',AUTH_REGISTRATION_ENABLED:'false',EMAILJS_ENABLED:'false',EMAILJS_SERVICE_ID:'',EMAILJS_TEMPLATE_ID:'',EMAILJS_PUBLIC_KEY:'',EMAILJS_PRIVATE_KEY:'',RESEND_API_KEY:'',SMTP_HOST:'',SMTP_USER:'',SMTP_PASS:'',SUPABASE_URL:'',SUPABASE_ANON_KEY:'',SUPABASE_SERVICE_ROLE_KEY:'',WEB_URL:'http://localhost:3010',CRON_SECRET:'',REPORT_LINK_TTL_DAYS:'7'});
+Object.assign(process.env,{DATABASE_URL:'',DATABASE_PATH:join(temp,'workflow.sqlite3'),MEDIA_ROOT:join(temp,'media'),STORAGE_MODE:'local',OMR_REMOTE_URL:'',OMR_REMOTE_SECRET:'',AUTH_ENABLED:'true',AUTH_REGISTRATION_ENABLED:'false',EMAILJS_ENABLED:'false',EMAILJS_SERVICE_ID:'',EMAILJS_TEMPLATE_ID:'',EMAILJS_PUBLIC_KEY:'',EMAILJS_PRIVATE_KEY:'',RESEND_API_KEY:'',SMTP_HOST:'',SMTP_USER:'',SMTP_PASS:'',SUPABASE_URL:'',SUPABASE_ANON_KEY:'',SUPABASE_SERVICE_ROLE_KEY:'',WEB_URL:'http://localhost:3010',CRON_SECRET:'',REPORT_LINK_TTL_DAYS:'7'});
 delete process.env.VERCEL;
+const {AuthService}=require('../dist/auth.js');
 const {createApplication}=require('../dist/bootstrap.js');
 const {DatabaseService}=require('../dist/database.service.js');
 const {ReportEmailGateway}=require('../dist/reports.service.js');
@@ -33,7 +34,9 @@ images[0].save(out/'cartoes-coletivos.pdf','PDF',resolution=150,save_all=True,ap
 (out/'truth.json').write_text(json.dumps({'key':key,'answers':[key,second]}))
 `,temp],{env:{...process.env,PYTHONPATH:[join(root,'python'),join(root,'python/tests')].join(':')},timeout:60000});
   const expected=JSON.parse(readFileSync(join(temp,'truth.json'),'utf8'));key=expected.key;truth=expected.answers;
-  app=await createApplication(false);await app.listen(0,'127.0.0.1');base='http://127.0.0.1:'+app.getHttpServer().address().port+'/api';
+  app=await createApplication(false);
+  // Somente este processo de teste usa uma identidade fictícia; a aplicação mantém o middleware ativo.
+  app.get(AuthService).user=async()=>({email:'professor-ficticio@example.test'});await app.listen(0,'127.0.0.1');base='http://127.0.0.1:'+app.getHttpServer().address().port+'/api';
 });
 after(async()=>{await app?.close();rmSync(temp,{recursive:true,force:true});});
 async function json(path,method='GET',body) {
