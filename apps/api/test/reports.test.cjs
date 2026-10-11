@@ -151,6 +151,13 @@ test('PDF de 50 questões segue modelo individual com notas de 0 a 10 sem altera
   // Optional QA artifact uses fictitious records only, never the database from the user.
   if (process.env.REPORT_QA_PDF) {mkdirSync(resolve(process.env.REPORT_QA_PDF, '..'), {recursive:true}); writeFileSync(process.env.REPORT_QA_PDF, pdf);}
 });
+test('título longo não separa o título da redação de sua nota e competências', async () => {
+  const report=await reports.report(result1);
+  const pdf=await reports.pdf({...report,nome:'ALUNO FICTÍCIO - TESTE DE FLUXO',curso:'Teste sem dados acadêmicos reais',titulo:'TESTE FICTÍCIO - fluxo completo 50 questões - 11/10/2026',redacao:{nota_redacao:760,competencias_redacao:[200,160,120,160,120],avaliador_redacao:'Professor fictício',situacao_redacao:'Texto válido',feedback_redacao:'Feedback fictício para testar a paginação.'}});
+  const pages=pdfText(pdf).split('\f');
+  const essay=pages.find(page=>page.includes('Redação - avaliação do professor'));
+  assert.ok(essay);assert.match(essay,/760 \/ 1000/);assert.match(essay,/COMPETÊNCIA 1/);assert.match(essay,/COMPETÊNCIA 5/);
+});
 test('redação extensa preserva a paginação e não corta o conteúdo final', async () => {
   const report = await reports.report(result1);
   const ending=' FINAL FICTÍCIO PRESERVADO',feedback=('A argumentação pode ser aprofundada com exemplos e uma proposta de intervenção detalhada. '.repeat(120)).slice(0,10000-ending.length)+ending;

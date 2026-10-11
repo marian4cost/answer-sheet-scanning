@@ -80,7 +80,8 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     boxParagraph(report.metodologia,'#fff5df','#e9cf90',7.5);
     if (report.pendencias.length) {heading('Pendências');for (const p of report.pendencias) paragraph(p,8,'#9a6700');}
     if (report.avisos.length) {heading('Observações');for (const p of report.avisos) paragraph(p,8,MUTED);}
-    heading('Redação - avaliação do professor',56);
+    // Keep the heading, total and competency row together when metadata pushes them near the footer.
+    heading('Redação - avaliação do professor', report.redacao.competencias_redacao?.length === 5 ? 80 : 56);
     paragraph('Nota: '+(report.redacao.nota_redacao===null?'não informada pelo professor':`${report.redacao.nota_redacao} / 1000`),10,NAVY);
     if (report.redacao.competencias_redacao?.length === 5) {
       const cells = report.redacao.competencias_redacao;
