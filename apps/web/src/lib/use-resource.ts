@@ -9,8 +9,10 @@ export function useResource<T>(path: string) {
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setError('');
-    api<T>(path, {signal: controller.signal}).then(setData).catch(error => {
+    setLoading(true); setError(''); setData(null);
+    api<T>(path, {signal: controller.signal}).then(value => {
+      if (!controller.signal.aborted) setData(value);
+    }).catch(error => {
       if (!controller.signal.aborted) setError(errorMessage(error));
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();

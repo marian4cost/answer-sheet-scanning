@@ -8,6 +8,7 @@ import { OmrService } from './omr.service';
 import { SimuladosService } from './simulados.service';
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE, MEDIA_ROOT } from './config';
 import { questionCount } from './question-config';
+import { accountId } from './account-context';
 
 export interface UploadReceipt { id: string; path: string; name: string; size: number; purpose: 'gabarito' | 'prova'; created_at: string; consumed_at: string | null }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,6 +21,7 @@ export class UploadsService {
     @Inject(SimuladosService) private readonly simulados: SimuladosService) {}
 
   async prepare(value: unknown) {
+    const owner = accountId();
     if (!this.storage.privateCloud) throw new BadRequestException('Utilize o envio direto de arquivos no ambiente local.');
     if (!Array.isArray(value) || !value.length || value.length > 50) throw new BadRequestException('Selecione de 1 a 50 arquivos por envio.');
     const now = new Date().toISOString();
@@ -37,8 +39,8 @@ export class UploadsService {
     const uploads = [];
     for (const receipt of receipts) uploads.push({id: receipt.id, name: receipt.name, url: await this.storage.signedUploadURL(receipt.path)});
     await this.db.transaction(async () => {
-      for (const receipt of receipts) await this.db.run('INSERT INTO uploaded_files(id,path,name,size,purpose,created_at,consumed_at) VALUES(?,?,?,?,?,?,?)',
-        receipt.id, receipt.path, receipt.name, receipt.size, receipt.purpose, receipt.created_at, null);
+      for (const receipt of receipts) await this.db.run('INSERT INTO uploaded_files(id,path,name,size,purpose,created_at,consumed_at,owner_id) VALUES(?,?,?,?,?,?,?,?)',
+        receipt.id, receipt.path, receipt.name, receipt.size, receipt.purpose, receipt.created_at, null, owner);
     });
     return {uploads};
   }
@@ -51,7 +53,7 @@ export class UploadsService {
       const receipts: UploadReceipt[] = [];
       const now = new Date();
       for (const id of value) {
-        const receipt = await this.db.get<UploadReceipt>('SELECT * FROM uploaded_files WHERE id=?', id);
+        const receipt = await this.db.get<UploadReceipt>('SELECT * FROM uploaded_files WHERE id=? AND owner_id=?', id, accountId());
         if (!receipt) throw new NotFoundException('Upload não encontrado.');
         if (receipt.purpose !== purpose) throw new BadRequestException('O arquivo foi enviado para outra finalidade.');
         if (receipt.consumed_at) throw new BadRequestException('Este upload já foi utilizado. Envie o arquivo novamente.');

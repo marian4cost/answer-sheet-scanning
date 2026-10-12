@@ -114,6 +114,24 @@ CREATE TABLE IF NOT EXISTS proof_import_pages (
   UNIQUE(plan_id, file_index, page_number)
 );
 CREATE INDEX IF NOT EXISTS proof_pages_plan ON proof_import_pages(plan_id);
+-- Registros legados ficam sem proprietário até a migração explícita, sem acesso por professores.
+ALTER TABLE report_deliveries ADD COLUMN IF NOT EXISTS tentativa_em TEXT;
+ALTER TABLE core_simulado ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE core_simulado ADD COLUMN IF NOT EXISTS expira_em TEXT;
+ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE contacts_import_plans ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE student_contacts ADD COLUMN IF NOT EXISTS owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE student_contacts ADD COLUMN IF NOT EXISTS expira_em TEXT;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='student_contacts'::regclass AND contype='p' AND pg_get_constraintdef(oid)='PRIMARY KEY (matricula)') THEN
+    ALTER TABLE student_contacts DROP CONSTRAINT student_contacts_pkey;
+    ALTER TABLE student_contacts ADD PRIMARY KEY(owner_id,matricula);
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS omr_simulado_owner ON core_simulado(owner_id,expira_em);
+CREATE INDEX IF NOT EXISTS omr_upload_owner ON uploaded_files(owner_id);
+CREATE TABLE IF NOT EXISTS storage_deletions (path TEXT PRIMARY KEY, criado_em TEXT NOT NULL);
+ALTER TABLE storage_deletions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE essay_import_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE report_access_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE proof_import_plans ENABLE ROW LEVEL SECURITY;
@@ -134,7 +152,7 @@ DECLARE role_name TEXT;
 BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages FROM %I', role_name);
+      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages, storage_deletions FROM %I', role_name);
     END IF;
   END LOOP;
 END $$;

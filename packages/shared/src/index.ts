@@ -5,7 +5,7 @@ export interface ThemeRange { inicio: number; fim: number; tema: string }
 export interface ThemeScore extends Score { tema: string; total_questoes: number }
 export interface Simulado {
   id: number; titulo: string; data_criacao: string; gabarito_oficial: AnswerKey;
-  total_questoes: number; temas: ThemeRange[];
+  total_questoes: number; temas: ThemeRange[]; expira_em?: string | null;
   total_provas: number; total_envios: number; gabarito_valido: boolean;
 }
 export interface Envio {
@@ -28,7 +28,7 @@ export interface Indicators {
 }
 export interface DashboardData {
   simulados: Simulado[]; envios_recentes: Envio[];
-  total_simulados: number; total_provas: number;
+  total_simulados: number; total_provas: number; retencao_dias?: number;
 }
 export interface SimuladoDetail { simulado: Simulado; envios: Envio[] }
 export interface ResultsData {

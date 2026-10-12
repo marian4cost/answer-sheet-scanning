@@ -1,4 +1,4 @@
-const {test} = require('node:test');
+const {test} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const ExcelJS = require('exceljs');
 const {ExportService} = require('../dist/export.service.js');

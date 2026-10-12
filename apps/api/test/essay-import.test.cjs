@@ -1,4 +1,4 @@
-const {test} = require('node:test');
+const {test} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync,rmSync} = require('node:fs');
 const {tmpdir} = require('node:os');
@@ -36,8 +36,8 @@ async function xlsx(rows, options={}) {
 }
 async function createRecords(db) {
   const date='2026-10-10T12:00:00.000Z', key=JSON.stringify(Object.fromEntries(Array.from({length:50},(_,i)=>[i+1,'ABCDE'[i%5]])));
-  const sim=(await db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)','Simulado fictício de importação',date,key,50,'[]')).lastInsertRowid;
-  const other=(await db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)','Outro simulado fictício',date,key,50,'[]')).lastInsertRowid;
+  const sim=(await db.run("INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas,owner_id) VALUES(?,?,?,?,?,'11111111-1111-4111-8111-111111111111')",'Simulado fictício de importação',date,key,50,'[]')).lastInsertRowid;
+  const other=(await db.run("INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas,owner_id) VALUES(?,?,?,?,?,'11111111-1111-4111-8111-111111111111')",'Outro simulado fictício',date,key,50,'[]')).lastInsertRowid;
   const lot=(await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',date,sim,key)).lastInsertRowid;
   const otherLot=(await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',date,other,key)).lastInsertRowid;
   async function add(matricula, batch=lot) {return (await db.run('INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,nota_percentual,status,lote_id) VALUES(?,?,?,?,?,?,?,?,?)',matricula,key,50,0,0,0,100,'SUCESSO',batch)).lastInsertRowid;}
@@ -127,7 +127,7 @@ test('arquivo inválido, vazio, grande e número excessivo de linhas são recusa
 });
 test('PostgreSQL isolado com PGlite confirma associação, upsert e consumo único do plano',async()=>{
   const {PGlite}=require('@electric-sql/pglite');const pg=new PGlite();
-  await pg.exec(`CREATE TABLE core_simulado(id SERIAL PRIMARY KEY,titulo TEXT,data_criacao TEXT,gabarito_oficial TEXT,total_questoes INTEGER,temas TEXT);
+  await pg.exec(`CREATE TABLE core_simulado(owner_id TEXT NOT NULL DEFAULT '',expira_em TEXT,id SERIAL PRIMARY KEY,titulo TEXT,data_criacao TEXT,gabarito_oficial TEXT,total_questoes INTEGER,temas TEXT);
     CREATE TABLE core_lotecorrecao(id SERIAL PRIMARY KEY,criado_em TEXT,simulado_id INTEGER REFERENCES core_simulado(id),gabarito_snapshot TEXT);
     CREATE TABLE core_resultadoaluno(id SERIAL PRIMARY KEY,matricula TEXT,respostas_detectadas TEXT,total_acertos INTEGER,total_erros INTEGER,total_rasuras INTEGER,total_brancos INTEGER,nota_percentual REAL,status TEXT,lote_id INTEGER REFERENCES core_lotecorrecao(id));
     CREATE TABLE report_feedback(resultado_id INTEGER PRIMARY KEY REFERENCES core_resultadoaluno(id),nota_redacao REAL,feedback_redacao TEXT,atualizado_em TEXT,competencias_redacao TEXT NOT NULL DEFAULT '[]',avaliador_redacao TEXT NOT NULL DEFAULT '',situacao_redacao TEXT NOT NULL DEFAULT '',origem_redacao TEXT NOT NULL DEFAULT 'manual');

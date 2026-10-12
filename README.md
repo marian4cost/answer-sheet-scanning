@@ -90,7 +90,7 @@ Cada competência aceita 0 a 200 pontos; a nota geral é a soma de 0 a 1000. Se 
 
 O email contém `/boletim#TOKEN`: a página remove o fragmento da barra de endereço e consulta a API por POST. O token de 32 bytes não é guardado no navegador nem em texto claro no banco. A autorização dura sete dias por padrão (`REPORT_LINK_TTL_DAYS`), funciona durante o prazo sem ser consumida no primeiro acesso e bloqueia consultas quando expirada, revogada ou quando o conteúdo foi alterado. A ação **Reemitir link** exige nova revisão e revoga o acesso anterior mantendo a entrega registrada.
 
-A autenticação é sempre obrigatória nos recursos do professor. Apenas os POSTs `/api/boletim/consultar` e `/api/boletim/pdf` aceitam acesso do aluno, sempre com token válido. Respostas usam `private, no-store`, sem referrer e sem indexação. A limpeza diária configurada na API Vercel usa `CRON_SECRET` (mínimo 32 caracteres) às 08h UTC: remove autorizações e prévias expiradas, mantendo resultados acadêmicos. Nenhum PDF de boletim é persistido na nuvem.
+A autenticação é sempre obrigatória nos recursos do professor. Apenas os POSTs `/api/boletim/consultar` e `/api/boletim/pdf` aceitam acesso do aluno, sempre com token válido. Respostas usam `private, no-store`, sem referrer e sem indexação. A limpeza diária configurada na API Vercel usa `CRON_SECRET` (mínimo 32 caracteres) às 08h UTC: remove autorizações e prévias expiradas, além dos simulados e contatos com retenção vencida. Resultados, redações, entregas e links acompanham a exclusão do simulado; objetos privados são removidos com uma fila persistente para repetir falhas de armazenamento. Nenhum PDF de boletim é persistido na nuvem.
 
 ## Email opcional dos boletins
 
@@ -110,7 +110,7 @@ Os testes simulam os provedores, sem enviar emails reais. Importar a planilha n�
 
 ## Login dos professores
 
-O login por email e senha é sempre exigido. `AUTH_REGISTRATION_ENABLED=true` permite cadastro de qualquer email, conforme a escolha do responsável: todas as contas com email confirmado podem acessar os simulados, contatos e boletins. Com a flag de cadastro desativada, valem apenas `TEACHER_EMAILS` ou os papéis `teacher`/`admin` em metadados administrativos do Supabase. A antiga variável `AUTH_ENABLED` não permite mais desativar a autenticação, localmente ou na nuvem.
+O login por email e senha é sempre exigido. `AUTH_REGISTRATION_ENABLED=true` permite cadastro de qualquer email, conforme a escolha do responsável: cada conta com email confirmado acessa somente seus próprios simulados, contatos, resultados, importações e histórico de envios. O identificador proprietário é o UUID retornado pelo Supabase Auth; valores enviados pelo navegador não alteram esse vínculo. Com a flag de cadastro desativada, valem apenas `TEACHER_EMAILS` ou os papéis `teacher`/`admin` em metadados administrativos do Supabase. A antiga variável `AUTH_ENABLED` não permite mais desativar a autenticação, localmente ou na nuvem.
 
 O cadastro pede email, senha de 8 a 128 caracteres e confirmação da senha. O NestJS gera um OTP de cadastro no **Supabase Auth** e envia o código pelo **EmailJS**. A conta só recebe sessão após o Supabase confirmar o código. Senhas são tratadas pelo Supabase Auth; não são armazenadas em tabelas da aplicação, no EmailJS nem no navegador. Os códigos também não aparecem em respostas da API ou logs. A aplicação limita solicitações por email e IP em banco compartilhado entre deployments.
 
@@ -124,6 +124,26 @@ A sessão usa cookie `HttpOnly`, `SameSite=Lax`, seguro na nuvem, até uma hora.
 
 
 Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/auth/auth-email-templates) e [login por email e OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless).
+
+### Histórico por conta e retenção
+
+`DATA_RETENTION_DAYS` define de 1 a 365 dias (padrão: 90). O prazo de cada simulado é fixado no cadastro; resultados, redações e histórico de entregas vencem juntos. A interface mostra a data e recomenda exportar os arquivos. Contatos vencem no mesmo prazo contado da última importação. Novos envios não estendem a retenção de um simulado. Os registros ficam inacessíveis quando vencem; a limpeza diária os exclui do banco e remove os arquivos. As contas de acesso não são excluídas por essa limpeza. Links individuais duram no máximo sete dias e nunca ultrapassam a validade do simulado ou do contato.
+
+Bancos anteriores à separação mantêm os registros antigos sem dono e sem exposição a contas novas. A migração é explícita, exige uma conta existente com e-mail confirmado e cria um backup privado antes de modificar o banco:
+
+```bash
+node scripts/migrate-account-data.mjs --email professor@example.com --days 90
+# Após revisar o proprietário e o prazo:
+node scripts/migrate-account-data.mjs --email professor@example.com --days 90 --apply
+```
+
+Ela atribui somente registros ainda sem proprietário e não altera notas, respostas, IDs ou datas originais. O modo de prévia não executa DDL nem altera registros. Os arquivos de backup precisam seguir a política de retenção da instituição e ficam fora do Git. Uploads temporários, prévias e limites de envio também são limpos; não há mais arquivos de alunos servidos diretamente por `/media`.
+
+### Entrega dos e-mails
+
+O template mantém **Use Default Email Address**, com a conta Gmail autorizada, um nome de remetente reconhecível e um endereço real para respostas. O boletim usa assunto transacional e um link cujo texto mostra o domínio de destino; SMTP e Resend também recebem uma versão texto. No EmailJS, `message_text` fica disponível como parâmetro adicional. As credenciais e o código de confirmação continuam protegidos.
+
+Classificação como spam não pode ser garantida pela aplicação. Confira SPF, DKIM e DMARC em **Mostrar original** da mensagem recebida e a reputação do remetente. Para mensagens legítimas já classificadas como spam, o destinatário pode usar **Não é spam** naquela mensagem. Não desative filtros de segurança nem crie exceções para toda a caixa. Para grandes turmas, use um provedor com domínio próprio autenticado quando houver um domínio autorizado disponível. [Orientações do Gmail](https://support.google.com/mail/answer/81126) e [Serviços pessoais do EmailJS](https://www.emailjs.com/docs/user-guide/connecting-email-services/).
 
 ## Publicação Vercel e Supabase
 

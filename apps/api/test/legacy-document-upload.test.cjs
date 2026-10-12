@@ -1,4 +1,4 @@
-const {test,before,after} = require('node:test');
+const {test,before,after} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync,rmSync,mkdirSync,writeFileSync,existsSync,readdirSync} = require('node:fs');
 const {tmpdir} = require('node:os');

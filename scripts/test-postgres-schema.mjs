@@ -14,15 +14,15 @@ try {
   await db.query('INSERT INTO student_contacts(matricula,email,nome,atualizado_em) VALUES($1,$2,$3,$4)', ['0000001', 'legacy@example.test', 'Aluno fictício', 'previous-date']);
   await db.exec(await readFile(resolve(root, 'infra/sql/001-schema.sql'), 'utf8'));
   assert.deepEqual((await db.query('SELECT * FROM student_contacts WHERE matricula=$1', ['0000001'])).rows[0], {
-    matricula: '0000001', email: 'legacy@example.test', nome: 'Aluno fictício', atualizado_em: 'previous-date', curso: '',
+    matricula: '0000001', email: 'legacy@example.test', nome: 'Aluno fictício', atualizado_em: 'previous-date', curso: '', owner_id:'', expira_em:null,
   });
   await db.query('UPDATE student_contacts SET curso=$1 WHERE matricula=$2', ['Edificações', '0000001']);
   await db.exec(await readFile(resolve(root, 'infra/sql/001-schema.sql'), 'utf8'));
   assert.equal((await db.query('SELECT curso FROM student_contacts WHERE matricula=$1', ['0000001'])).rows[0].curso, 'Edificações');
   await db.query('DELETE FROM student_contacts WHERE matricula=$1', ['0000001']);
   console.log('PASS: migração legada de curso preserva contato e é idempotente.');
-  const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files','email_provider_slots','auth_attempt_limits','essay_import_plans','report_access_links','proof_import_plans','proof_import_pages')");
-  assert.equal(tables.rows.length, 15);
+  const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files','email_provider_slots','auth_attempt_limits','essay_import_plans','report_access_links','proof_import_plans','proof_import_pages','storage_deletions')");
+  assert.equal(tables.rows.length, 16);
   assert.ok(tables.rows.every(row => row.rowsecurity));
   console.log('PASS: schema PostgreSQL e RLS em todas as tabelas.');
   const now=Date.now();
@@ -66,7 +66,7 @@ try {
   await assert.rejects(db.query('SELECT * FROM student_contacts'), /permission denied/i);
   await assert.rejects(db.query('SELECT * FROM auth_attempt_limits'), /permission denied/i);
   await assert.rejects(db.query('SELECT * FROM email_provider_slots'), /permission denied/i);
-  for (const table of ['essay_import_plans','report_access_links','proof_import_plans','proof_import_pages']) {
+  for (const table of ['essay_import_plans','report_access_links','proof_import_plans','proof_import_pages','storage_deletions']) {
     await assert.rejects(db.query('SELECT * FROM '+table), /permission denied/i);
   }
   await db.exec('RESET ROLE;');

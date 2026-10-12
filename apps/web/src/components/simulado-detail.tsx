@@ -34,6 +34,7 @@ export function DetailView({id}: {id: number}) {
   if (error || !data) return <><BackLink/><Alert kind="error">{error || 'Simulado não encontrado.'}</Alert></>;
   const {simulado, envios} = data;
   return <><BackLink/><div className="page-heading"><div><span className="eyebrow">GABARITO OFICIAL</span><h1>{simulado.titulo}</h1><p>Cadastrado em {dateText(simulado.data_criacao)}</p></div><div className="actions"><Link className="button primary" href={`/simulado/${id}/resultados`}>Todas as provas ({simulado.total_provas})</Link><Link className="button outline" href={`/simulado/${id}/upload`}><Upload size={17}/>Adicionar provas</Link><Link className="button danger-outline" href={`/simulado/${id}/deletar`}><Trash2 size={16}/>Excluir</Link></div></div>
+    {simulado.expira_em && <Alert>Este simulado, os resultados, as redações e o histórico de envios serão excluídos em {dateText(simulado.expira_em)}. Exporte os arquivos antes dessa data.</Alert>}
     {!simulado.gabarito_valido && <Alert kind="warning">O gabarito atual está incompleto ou contém marcações inválidas. Reenvie uma folha com uma alternativa clara em cada questão.</Alert>}
     <div className="detail-grid"><section className="card"><div className="section-heading"><KeyRound size={21}/><h2>{simulado.total_questoes} alternativas oficiais</h2></div><div className="answer-key">{Array.from({length: simulado.total_questoes}, (_, i) => {
       const theme = simulado.temas.find(range => range.inicio <= i + 1 && range.fim >= i + 1)?.tema || 'Sem tema';

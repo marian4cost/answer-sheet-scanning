@@ -1,4 +1,4 @@
-const {test, before, after} = require('node:test');
+const {test, before, after} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync, rmSync, writeFileSync, mkdirSync} = require('node:fs');
 const {tmpdir} = require('node:os');
@@ -26,7 +26,7 @@ before(async () => {
   db = new DatabaseService(); contacts = new ContactsService(db); simulados = new SimuladosService(db, {});
   gateway = {availability: () => ({envio_disponivel: true, envio_motivo: 'Simulador isolado de email.'}), deliver: async (report, accessUrl, idem, expiry) => {sent.push({report, accessUrl, idem, expiry}); return 'fake-' + sent.length;}};
   reports = new ReportsService(db, simulados, contacts, gateway);
-  const sim = await db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)', 'Simulado fictício de validação', new Date().toISOString(), JSON.stringify(key), 50, JSON.stringify(themes));
+  const sim = await db.run("INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas,owner_id) VALUES(?,?,?,?,?,'11111111-1111-4111-8111-111111111111')", 'Simulado fictício de validação', new Date().toISOString(), JSON.stringify(key), 50, JSON.stringify(themes));
   simuladoId = sim.lastInsertRowid;
   const batch = await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)', new Date().toISOString(), simuladoId, JSON.stringify(key));
   async function add(matricula, answers, status) {
@@ -102,7 +102,7 @@ test('EmailJS envia mensagem curta com link temporário sem notas, respostas ou 
   const accessUrl='https://ficticio.example.com/boletim#'+require('node:crypto').randomBytes(32).toString('base64url');
   await gateway.deliver(report,accessUrl,'fake-idempotency','2030-01-01T12:00:00.000Z');
   assert.equal(calls.length,1);assert.equal(calls[0][0],report.email);
-  assert.match(calls[0][2],/Ver meu boletim/);assert.ok(calls[0][2].includes(accessUrl));
+  assert.match(calls[0][2],/https:\/\/ficticio\.example\.com\/boletim/);assert.ok(calls[0][2].includes(accessUrl));
   assert.doesNotMatch(calls[0][2],/Questões|INCORRETA|PDF em anexo|<table/);
   assert.ok(!calls[0][2].includes(report.matricula));assert.ok(!calls[0][2].includes(report.nome));
 });
@@ -261,7 +261,7 @@ test('modelo e curso fazem parte do hash e invalidam planos anteriores antes de 
 test('PDF de 60 questões conserva nomes/cursos longos, última questão, branco, dupla e quatro áreas', async () => {
   const key60=Object.fromEntries(Array.from({length:60},(_,i)=>[String(i+1),'ABCDE'[i%5]]));
   const answers={...key60,'1':'BNK','2':'RAS','59':'B','60':'A'};
-  const sim=await db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)','Avaliação fictícia com sessenta questões',new Date().toISOString(),JSON.stringify(key60),60,JSON.stringify([{inicio:1,fim:15,tema:'Linguagens'},{inicio:16,fim:30,tema:'Ciências da Natureza'},{inicio:31,fim:45,tema:'Matemática'},{inicio:46,fim:60,tema:'Ciências Humanas'}]));
+  const sim=await db.run("INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas,owner_id) VALUES(?,?,?,?,?,'11111111-1111-4111-8111-111111111111')",'Avaliação fictícia com sessenta questões',new Date().toISOString(),JSON.stringify(key60),60,JSON.stringify([{inicio:1,fim:15,tema:'Linguagens'},{inicio:16,fim:30,tema:'Ciências da Natureza'},{inicio:31,fim:45,tema:'Matemática'},{inicio:46,fim:60,tema:'Ciências Humanas'}]));
   const batch=await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',new Date().toISOString(),sim.lastInsertRowid,JSON.stringify(key60));
   const score=grade(answers,key60,'ALERTA_RASURA',60),r=await db.run('INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,total_incertas,nota_percentual,imagem_debug,status,lote_id,mensagem_leitura) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)','FICTICIO060',JSON.stringify(answers),score.total_acertos,score.total_erros,score.total_rasuras,score.total_brancos,score.total_incertas,score.nota_percentual,null,'ALERTA_RASURA',batch.lastInsertRowid,'');
   const longName='Estudante Fictício '+('Nome Composto '.repeat(9)),longCourse='Curso Técnico Fictício '+('Área Multidisciplinar '.repeat(5));

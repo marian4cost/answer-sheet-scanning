@@ -47,6 +47,7 @@ export function Dashboard() {
   }
   return <>
     <div className="page-heading"><div><span className="eyebrow">PAINEL DE CORREÇÃO</span><h1>Seus simulados</h1><p>Cadastre o gabarito oficial e acompanhe todas as provas da turma.</p></div><div className="summary-pill"><Files size={18}/><strong>{data?.total_provas ?? '—'}</strong> provas armazenadas</div></div>
+    {data?.retencao_dias && <Alert>Seus simulados, contatos e histórico são privados desta conta. Os simulados são excluídos automaticamente após {data.retencao_dias || 90} dias do cadastro. Baixe as planilhas e os boletins antes do vencimento.</Alert>}
     <div className="dashboard-grid">
       <section className="card create-card"><div className="section-heading"><span className="step">01</span><div><h2>Cadastrar simulado</h2><p>Comece pela folha oficial do professor.</p></div></div>
         <form onSubmit={submit}>
@@ -68,7 +69,7 @@ export function Dashboard() {
       <div className="stack"><section className="card"><div className="section-heading between"><h2>Simulados ativos</h2><span className="count">{data?.total_simulados ?? 0}</span></div>
         {loading ? <Loading/> : error ? <><Alert kind="error">{error}</Alert><button onClick={refresh} className="button outline">Tentar novamente</button></> : !data?.simulados.length ? <Empty>Nenhum simulado cadastrado. Envie a folha oficial para começar.</Empty> :
           <div className="simulado-list">{data.simulados.map(simulado => <article className="simulado-item" key={simulado.id}>
-            <div className="simulado-title"><h3>{simulado.titulo}</h3><span>{dateText(simulado.data_criacao)}</span></div>
+            {simulado.expira_em && <p className="help">Disponível até {dateText(simulado.expira_em)}</p>}<div className="simulado-title"><h3>{simulado.titulo}</h3><span>{dateText(simulado.data_criacao)}</span></div>
             <p className="help"><strong>{simulado.total_provas}</strong> provas · {simulado.total_envios} envios · {simulado.total_questoes} questões</p>
             {!simulado.gabarito_valido && <span className="status alerta_revisao">Atualize o gabarito oficial</span>}
             <div className="actions"><Link className="button primary small" href={`/simulado/${simulado.id}/resultados`}>Resultados ({simulado.total_provas})</Link><Link className="button outline small" href={`/simulado/${simulado.id}/boletins`}>Boletins</Link><Link className="button outline small" href={`/simulado/${simulado.id}/upload`}><Plus size={15}/> Adicionar provas</Link><Link className="button icon-button" href={`/simulado/${simulado.id}`} aria-label={`Ver gabarito de ${simulado.titulo}`}><Eye size={17}/></Link><Link className="button danger-outline small" href={`/simulado/${simulado.id}/deletar`} aria-label={`Excluir simulado ${simulado.titulo}`}><Trash2 size={15}/> Excluir</Link></div>

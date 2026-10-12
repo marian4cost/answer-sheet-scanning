@@ -4,6 +4,7 @@ import { SUPABASE_URL } from './config';
 import { DatabaseService } from './database.service';
 import { EmailJsService } from './emailjs.service';
 import { sha256 } from './contacts.service';
+import { withAccount, currentAccount } from './account-context';
 
 const COOKIE = 'enem_session';
 export function authRequired() {
@@ -43,7 +44,8 @@ export class AuthService {
     if (!token || token.length > 8000) throw new UnauthorizedException('Entre com sua conta de professor.');
     const user = await this.call('user', undefined, token);
     if (!teacherAllowed(user)) throw new ForbiddenException('Esta conta não tem acesso aos simulados.');
-    return {email: user.email as string};
+    if (typeof user.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(user.id)) throw new UnauthorizedException('Identidade da conta inválida.');
+    return {id: user.id as string, email: user.email as string};
   }
   private email(value: unknown) {
     if (typeof value !== 'string' || value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) throw new BadRequestException('Informe seu e-mail de professor.');
@@ -121,7 +123,7 @@ export class AuthService {
       const publicReport = (request.method === 'POST' && ['/api/boletim/consultar','/api/boletim/pdf'].includes(request.path)) || (request.method === 'GET' && request.path === '/api/boletim/limpar');
       if (publicReport) { response.setHeader('Referrer-Policy','no-referrer'); response.setHeader('X-Robots-Tag','noindex, nofollow, noarchive'); return next(); }
       if (request.method === 'OPTIONS' || ['/api/health', '/api/auth/config', '/api/auth/codigo', '/api/auth/cadastro', '/api/auth/senha', '/api/auth/login', '/api/auth/session', '/api/auth/logout'].includes(request.path)) return next();
-      try { await this.user(requestToken(request)); response.setHeader('Cache-Control', 'private, no-store'); next(); }
+      try { const account = await this.user(requestToken(request)); response.setHeader('Cache-Control', 'private, no-store'); withAccount(account, () => next()); }
       catch (error) {
         const status = error instanceof ForbiddenException ? 403 : 401;
         response.status(status).json({message: status === 403 ? 'Esta conta não tem acesso aos simulados.' : 'Entre com sua conta de professor.'});
@@ -133,6 +135,7 @@ export class AuthService {
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
   @Get('config') config() { return this.auth.config(); }
+  @Get('me') me() { return currentAccount(); }
   @Post('codigo') code(@Body('email') email: unknown, @Req() request: Request) { return this.auth.requestCode(email, request.ip || 'unknown'); }
   @Post('cadastro') signup(@Body('email') email: unknown, @Body('senha') password: unknown, @Req() request: Request) { return this.auth.signup(email,password,request.ip || 'unknown'); }
   @Post('senha') password(@Body('email') email: unknown, @Body('senha') password: unknown, @Req() request: Request, @Res({passthrough:true}) response: Response) { return this.auth.passwordLogin(email,password,response,request.ip || 'unknown'); }

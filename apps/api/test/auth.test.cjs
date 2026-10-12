@@ -24,10 +24,10 @@ test('cadastro aberto permite apenas identidades com email confirmado pelo Supab
 });
 test('login por senha valida credenciais no Supabase e nunca retorna senha ou token',async(t)=>{
   process.env.AUTH_REGISTRATION_ENABLED='true';
-  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.includes('/token?')?{access_token:'private-session',expires_in:3600}:{email:'nova@example.com',email_confirmed_at:'confirmed'}),{status:200});});
+  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.includes('/token?')?{access_token:'private-session',expires_in:3600}:{id:'11111111-1111-4111-8111-111111111111',email:'nova@example.com',email_confirmed_at:'confirmed'}),{status:200});});
   const res=response(),result=await new AuthService().passwordLogin('Nova@example.com','Ficticia-123!',res);
   assert.match(calls[0].url,/grant_type=password/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:'nova@example.com',password:'Ficticia-123!'});
-  assert.deepEqual(result,{email:'nova@example.com'});assert.equal(res.cookies[0][2].httpOnly,true);
+  assert.deepEqual(result,{id:'11111111-1111-4111-8111-111111111111',email:'nova@example.com'});assert.equal(res.cookies[0][2].httpOnly,true);
 });
 test('cadastro gera OTP no servidor e envia somente o código pelo EmailJS, sem senha',async(t)=>{
   process.env.AUTH_REGISTRATION_ENABLED='true';process.env.SUPABASE_SERVICE_ROLE_KEY='fake-server-key';
@@ -39,9 +39,9 @@ test('cadastro gera OTP no servidor e envia somente o código pelo EmailJS, sem 
 });
 test('confirmação de cadastro usa tipo signup e não aceita sessão de outro email',async(t)=>{
   process.env.AUTH_REGISTRATION_ENABLED='true';const calls=[];
-  const mock=t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified'}:{email:'nova@example.com',email_confirmed_at:'confirmed'}),{status:200});});
+  const mock=t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified'}:{id:'11111111-1111-4111-8111-111111111111',email:'nova@example.com',email_confirmed_at:'confirmed'}),{status:200});});
   await new AuthService().login('nova@example.com','12345678',response(),true);assert.equal(JSON.parse(calls[0].options.body).type,'signup');
-  mock.mock.mockImplementation(async(url)=>new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified'}:{email:'outra@example.com',email_confirmed_at:'confirmed'}),{status:200}));
+  mock.mock.mockImplementation(async(url)=>new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified'}:{id:'11111111-1111-4111-8111-111111111111',email:'outra@example.com',email_confirmed_at:'confirmed'}),{status:200}));
   const res=response();await assert.rejects(new AuthService().login('nova@example.com','12345678',res,true));assert.equal(res.cookies.length,0);
 });
 test('cadastro com senha curta ou serviço ausente não gera código nem envia mensagem',async(t)=>{
@@ -63,7 +63,7 @@ test('autenticação é obrigatória localmente e na nuvem, inclusive com a anti
 });
 test('a antiga flag false não libera leitura nem gravação sem sessão',async(t)=>{
   process.env.VERCEL='1';process.env.AUTH_ENABLED='false';
-  const calls=provider(t,{email:'teacher@example.com'}),auth=new AuthService();assert.equal(auth.config().required,true);
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'}),auth=new AuthService();assert.equal(auth.config().required,true);
   for(const [method,path] of [['GET','/api/simulados'],['POST','/api/simulados'],['GET','/api/contatos'],['GET','/api/resultados/1/boletim/pdf']]) {
     const res=await middleware(auth,request({method,path}));assert.equal(res.nextCalls,0);assert.equal(res.statusCode,401);assert.equal(res.headers['Cache-Control'],'private, no-store');
   }
@@ -76,20 +76,20 @@ test('extração de token respeita Bearer e o nome exato do cookie, sem usar out
   assert.equal(requestToken(request()),'');
 });
 test('middleware bloqueia contatos, boletins, PDFs e imagens sem token antes de ler dados',async(t)=>{
-  const calls=provider(t,{email:'teacher@example.com'});const auth=new AuthService();
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();
   for(const path of ['/api/contatos','/api/simulados/1/boletins','/api/resultados/1/boletim/pdf','/media/debug_images/private.png']) {
     const res=await middleware(auth,request({path}));assert.equal(res.statusCode,401,path);assert.equal(res.nextCalls,0,path);
   }
   assert.equal(calls.length,0);
 });
 test('somente rotas públicas de autenticação/health e OPTIONS passam sem sessão',async(t)=>{
-  const calls=provider(t,{email:'teacher@example.com'});const auth=new AuthService();
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();
   for(const path of ['/api/health','/api/auth/config','/api/auth/codigo','/api/auth/login','/api/auth/session','/api/auth/logout']) assert.equal((await middleware(auth,request({path}))).nextCalls,1,path);
   assert.equal((await middleware(auth,request({method:'OPTIONS'}))).nextCalls,1);
   assert.equal((await middleware(auth,request({path:'/api/auth/login/extra'}))).statusCode,401);assert.equal(calls.length,0);
 });
 test('conta válida de professor libera a rota e define cache privado sem armazenamento',async(t)=>{
-  const calls=provider(t,{email:'teacher@example.com'});const result=await middleware(new AuthService(),request({headers:{cookie:'enem_session=mock-jwt'}}));
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const result=await middleware(new AuthService(),request({headers:{cookie:'enem_session=mock-jwt'}}));
   assert.equal(result.nextCalls,1);assert.equal(result.headers['Cache-Control'],'private, no-store');
   assert.equal(calls[0].options.headers.Authorization,'Bearer mock-jwt');assert.match(calls[0].url,/\/auth\/v1\/user$/);
 });
@@ -99,7 +99,7 @@ test('conta autenticada de aluno recebe 403 e nunca acessa dados dos simulados',
 });
 test('nuvem sem configuração de acesso fecha a rota em vez de permitir acesso anônimo',async(t)=>{
   process.env.VERCEL='1';delete process.env.AUTH_ENABLED;delete process.env.SUPABASE_ANON_KEY;
-  const calls=provider(t,{email:'teacher@example.com'});const auth=new AuthService();assert.deepEqual(auth.config(),{required:true,configured:false,registration_enabled:false});
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();assert.deepEqual(auth.config(),{required:true,configured:false,registration_enabled:false});
   const result=await middleware(auth,request({headers:{authorization:'Bearer mock-jwt'}}));assert.equal(result.statusCode,401);assert.equal(result.nextCalls,0);assert.equal(calls.length,0);
 });
 test('erro de rede, JWT expirado e corpo de autenticação inválido nunca liberam a rota',async(t)=>{
@@ -110,7 +110,7 @@ test('erro de rede, JWT expirado e corpo de autenticação inválido nunca liber
   mocked.mock.mockImplementation(async()=>new Response('not json',{status:200}));assert.equal((await middleware(auth,req)).statusCode,401);
 });
 test('token vazio ou excessivo é rejeitado antes de consultar o provedor',async(t)=>{
-  const calls=provider(t,{email:'teacher@example.com'});const auth=new AuthService();
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();
   await assert.rejects(auth.user(''),/Entre/);await assert.rejects(auth.user('x'.repeat(8001)),/Entre/);assert.equal(calls.length,0);
 });
 test('pedido de OTP bloqueia email fora da allowlist antes de enviar qualquer mensagem',async(t)=>{
@@ -127,7 +127,7 @@ test('emails/códigos malformados e conta não autorizada são bloqueados antes 
   await assert.rejects(auth.login('student@example.com','123456',response()),error=>error.getStatus()===403);assert.equal(calls.length,0);
 });
 test('login valida código e identidade com o provedor antes de criar cookie seguro HttpOnly',async(t)=>{
-  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified-jwt',expires_in:7200}:{email:'teacher@example.com'}),{status:200});});
+  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified-jwt',expires_in:7200}:{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'}),{status:200});});
   const res=response(),result=await new AuthService().login('teacher@example.com','123456',res);
   assert.equal(result.email,'teacher@example.com');assert.equal(calls.length,2);assert.equal(res.cookies.length,1);
   const [name,value,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(value,'verified-jwt');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
@@ -142,7 +142,7 @@ test('logout limpa o mesmo cookie com proteção de transporte e sem divulgar to
   const res=response();assert.deepEqual(new AuthService().logout(res),{ok:true});assert.equal(res.cleared[0][0],'enem_session');assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
 });
 test('cookies continuam Secure na nuvem mesmo com a antiga flag false',async(t)=>{
-  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';provider(t,{email:'teacher@example.com'});
+  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});
   const auth=new AuthService(),res=response();await auth.session('mock-magic-link-token',res);auth.logout(res);
   assert.equal(res.cookies[0][2].secure,true);assert.equal(res.cleared[0][1].secure,true);
 });
@@ -155,9 +155,9 @@ test('pedido de link mágico usa callback /login da interface configurada e mant
   await new AuthService().requestCode('teacher@example.com');assert.equal(new URL(calls[1].url).searchParams.get('redirect_to'),'https://fallback.example.com/login');
 });
 test('sessão de link mágico valida professor no Supabase antes de criar cookie e não retorna token',async(t)=>{
-  const calls=provider(t,{email:'teacher@example.com'}),res=response();
+  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'}),res=response();
   const result=await new AuthService().session('mock-magic-link-token',res);
-  assert.deepEqual(result,{email:'teacher@example.com'});assert.equal(calls[0].options.headers.Authorization,'Bearer mock-magic-link-token');assert.match(calls[0].url,/\/user$/);
+  assert.deepEqual(result,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});assert.equal(calls[0].options.headers.Authorization,'Bearer mock-magic-link-token');assert.match(calls[0].url,/\/user$/);
   assert.equal(res.cookies.length,1);const [name,token,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(token,'mock-magic-link-token');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
   assert.doesNotMatch(JSON.stringify(result),/mock-magic-link-token/);
 });

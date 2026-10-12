@@ -1,4 +1,4 @@
-const {test,before,after} = require('node:test');
+const {test,before,after} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync,rmSync,readFileSync,readdirSync,existsSync} = require('node:fs');
 const {tmpdir} = require('node:os');
@@ -36,7 +36,7 @@ images[0].save(out/'cartoes-coletivos.pdf','PDF',resolution=150,save_all=True,ap
   const expected=JSON.parse(readFileSync(join(temp,'truth.json'),'utf8'));key=expected.key;truth=expected.answers;
   app=await createApplication(false);
   // Somente este processo de teste usa uma identidade fictícia; a aplicação mantém o middleware ativo.
-  app.get(AuthService).user=async()=>({email:'professor-ficticio@example.test'});await app.listen(0,'127.0.0.1');base='http://127.0.0.1:'+app.getHttpServer().address().port+'/api';
+  app.get(AuthService).user=async()=>({id:'11111111-1111-4111-8111-111111111111',email:'professor-ficticio@example.test'});await app.listen(0,'127.0.0.1');base='http://127.0.0.1:'+app.getHttpServer().address().port+'/api';
 });
 after(async()=>{await app?.close();rmSync(temp,{recursive:true,force:true});});
 async function json(path,method='GET',body) {

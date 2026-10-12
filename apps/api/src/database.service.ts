@@ -178,6 +178,26 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
       CREATE INDEX IF NOT EXISTS proof_pages_plan ON proof_import_pages(plan_id);
     `);
     if (!columns('student_contacts').some(column => column.name === 'curso')) this.sqlite!.exec("ALTER TABLE student_contacts ADD COLUMN curso TEXT NOT NULL DEFAULT ''");
+    for (const table of ['core_simulado', 'uploaded_files', 'contacts_import_plans']) {
+      if (!columns(table).some(column => column.name === 'owner_id')) this.sqlite!.exec(`ALTER TABLE ${table} ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!columns('core_simulado').some(column => column.name === 'expira_em')) this.sqlite!.exec('ALTER TABLE core_simulado ADD COLUMN expira_em TEXT');
+    if (!columns('student_contacts').some(column => column.name === 'owner_id')) {
+      this.sqlite!.exec(`BEGIN IMMEDIATE;
+        ALTER TABLE student_contacts RENAME TO student_contacts_legacy;
+        CREATE TABLE student_contacts (
+          owner_id TEXT NOT NULL DEFAULT '', matricula TEXT NOT NULL, email TEXT NOT NULL,
+          nome TEXT NOT NULL DEFAULT '', curso TEXT NOT NULL DEFAULT '', atualizado_em TEXT NOT NULL, expira_em TEXT,
+          PRIMARY KEY(owner_id,matricula)
+        );
+        INSERT INTO student_contacts(matricula,email,nome,curso,atualizado_em) SELECT matricula,email,nome,curso,atualizado_em FROM student_contacts_legacy;
+        DROP TABLE student_contacts_legacy;
+        COMMIT;`);
+    }
+    if (!columns('report_deliveries').some(column => column.name === 'tentativa_em')) this.sqlite!.exec('ALTER TABLE report_deliveries ADD COLUMN tentativa_em TEXT');
+    this.sqlite!.exec(`CREATE INDEX IF NOT EXISTS omr_simulado_owner ON core_simulado(owner_id,expira_em);
+      CREATE INDEX IF NOT EXISTS omr_upload_owner ON uploaded_files(owner_id);
+      CREATE TABLE IF NOT EXISTS storage_deletions (path TEXT PRIMARY KEY, criado_em TEXT NOT NULL);`);
     for (const [name, initial] of [['competencias_redacao', '[]'], ['avaliador_redacao', ''], ['situacao_redacao', ''], ['origem_redacao', 'manual']]) {
       if (!columns('report_feedback').some(column => column.name === name)) this.sqlite!.exec(`ALTER TABLE report_feedback ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${initial}'`);
     }

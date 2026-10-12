@@ -24,7 +24,6 @@ export async function createApplication(logger = true) {
     next();
   });
   app.setGlobalPrefix('api');
-  app.useStaticAssets(MEDIA_ROOT, {prefix: '/media/', dotfiles: 'deny', index: false});
   app.enableShutdownHooks();
   return app;
 }

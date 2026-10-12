@@ -12,6 +12,7 @@ import { UploadsService } from './uploads.service';
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE, MEDIA_ROOT, OMR_REMOTE_URL } from './config';
 import { grade, invalidQuestions } from './grading';
 import { questionCount } from './question-config';
+import { accountId, withAccount } from './account-context';
 
 type SourceFile = {name:string;key:string;size:number;pages:number};
 type PlanPayload = {files:SourceFile[];key:AnswerKey;count:number;key_hash:string;cleaned?:boolean};
@@ -29,10 +30,11 @@ export class ProofImportService {
     @Inject(OmrService) private readonly omr:OmrService, @Inject(SimuladosService) private readonly simulados:SimuladosService,
     @Inject(UploadsService) private readonly uploads:UploadsService) {}
 
-  private async row(id:string,lock=false):Promise<PlanRow> {
+  private async row(id:string,lock=false,expiredOnly=false):Promise<PlanRow> {
     if (!UUID.test(id)) throw new BadRequestException('Identificador de importação inválido.');
-    const row = await this.db.get<PlanRow>('SELECT * FROM proof_import_plans WHERE id=?' + (lock && this.db.dialect === 'postgres' ? ' FOR UPDATE' : ''),id);
+    const row = await this.db.get<PlanRow>('SELECT p.* FROM proof_import_plans p JOIN core_simulado s ON s.id=p.simulado_id WHERE p.id=? AND s.owner_id=?' + (lock && this.db.dialect === 'postgres' ? ' FOR UPDATE OF p' : ''),id,accountId());
     if (!row) throw new NotFoundException('Importação não encontrada.');
+    if (!expiredOnly) await this.simulados.get(row.simulado_id);
     return row;
   }
   private alive(plan:PlanRow) {
@@ -272,7 +274,7 @@ export class ProofImportService {
   }
   private async removePlan(id:string,expiredOnly=false):Promise<boolean> {
     return this.db.transaction(async()=>{
-      let plan:PlanRow;try {plan=await this.row(id,true);} catch(error) {if(expiredOnly && error instanceof NotFoundException) return false;throw error;}
+      let plan:PlanRow;try {plan=await this.row(id,true,expiredOnly);} catch(error) {if(expiredOnly && error instanceof NotFoundException) return false;throw error;}
       if(expiredOnly && Date.parse(plan.expira_em)>Date.now()) return false;
       const active=await this.db.get<{total:number}>('SELECT COUNT(*) total FROM proof_import_pages WHERE plan_id=? AND estado=? AND claim_at>?',id,'PROCESSANDO',new Date(Date.now()-LEASE_MS).toISOString());
       if(Number(active?.total)) {if(expiredOnly) return false;throw new BadRequestException('Há páginas em processamento. Aguarde a chamada atual terminar antes de cancelar a importação.');}
@@ -282,8 +284,14 @@ export class ProofImportService {
     });
   }
   async cancel(id:string):Promise<{message:string}> {await this.removePlan(id);return {message:'Importação cancelada e arquivos temporários removidos. As correções já salvas permanecem no simulado.'};}
+  async cleanupAllExpired() {
+    const rows=await this.db.all<{id:string;owner_id:string}>('SELECT p.id,s.owner_id FROM proof_import_plans p JOIN core_simulado s ON s.id=p.simulado_id WHERE p.expira_em<=? AND s.owner_id<>? ORDER BY p.expira_em LIMIT 20',new Date().toISOString(),'');
+    let total=0;
+    for (const row of rows) try {if(await withAccount({id:row.owner_id,email:''},()=>this.removePlan(row.id,true))) total++;} catch { /* Tenta novamente no próximo cron. */ }
+    return {total};
+  }
   async cleanupExpired():Promise<{total:number}> {
-    const rows=await this.db.all<{id:string}>('SELECT id FROM proof_import_plans WHERE expira_em<=? ORDER BY expira_em LIMIT 20',new Date().toISOString());let total=0;
+    const rows=await this.db.all<{id:string}>('SELECT p.id FROM proof_import_plans p JOIN core_simulado s ON s.id=p.simulado_id WHERE p.expira_em<=? AND s.owner_id=? ORDER BY p.expira_em LIMIT 20',new Date().toISOString(),accountId());let total=0;
     for(const row of rows) try {if(await this.removePlan(row.id,true)) total++;} catch { /* Retain the plan and source keys so a later cleanup can retry. */ }
     return {total};
   }

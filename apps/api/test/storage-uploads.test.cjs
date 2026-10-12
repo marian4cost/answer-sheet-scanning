@@ -1,4 +1,4 @@
-const test = require('node:test');
+const test = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');

@@ -10,6 +10,7 @@ import { grade } from './grading';
 import { renderReportPdf } from './reports.pdf';
 import { EmailJsService } from './emailjs.service';
 import { ProofImportService } from './proof-import.service';
+import { withAccount } from './account-context';
 
 const AREA_NAMES = ['Linguagens', 'Ciências da Natureza', 'Matemática', 'Ciências Humanas'];
 const INSTITUTION = () => process.env.REPORT_INSTITUTION || 'Instituto Federal de Sergipe - Campus Lagarto';
@@ -38,8 +39,14 @@ export function reportLinkHtml(url: string, expiry: string) {
   try { link = new URL(url); } catch { throw new BadRequestException('Link de boletim inválido.'); }
   if (link.pathname !== '/boletim' || link.search || !ACCESS_TOKEN_PATTERN.test(link.hash.slice(1)) || link.username || link.password || (link.protocol !== 'https:' && !(link.protocol === 'http:' && ['localhost','127.0.0.1'].includes(link.hostname)))) throw new BadRequestException('Link de boletim inválido.');
   const date = new Intl.DateTimeFormat('pt-BR', {dateStyle:'short',timeStyle:'short',timeZone:'America/Fortaleza'}).format(new Date(expiry));
-  return `<!doctype html><html lang="pt-BR"><body style="font:16px Arial,sans-serif;color:#172033;line-height:1.6"><main style="max-width:600px;margin:24px auto"><p>${escapeHtml(INSTITUTION())}</p><h1 style="font-size:24px">Seu boletim está disponível</h1><p>Acesse seu boletim individual e baixe o PDF pelo botão abaixo.</p><p><a href="${escapeHtml(url)}" style="display:inline-block;background:#2563eb;color:white;padding:12px 20px;border-radius:6px;text-decoration:none">Ver meu boletim</a></p><p>O link pode ser utilizado até ${escapeHtml(date)}. Mantenha-o em sigilo: ele permite consultar seu boletim.</p><p>Se precisar de um novo acesso, entre em contato com o professor.</p></main></body></html>`;
+  return `<!doctype html><html lang="pt-BR"><body style="font:16px Arial,sans-serif;color:#172033;line-height:1.6"><p>Olá,</p><p>O professor responsável disponibilizou seu boletim do simulado ENEM no sistema de correção do ${escapeHtml(INSTITUTION())}.</p><p>Você pode consultar o resultado e baixar o PDF neste endereço:</p><p><a href="${escapeHtml(url)}">${escapeHtml(link.origin)}/boletim</a></p><p>Este acesso individual é válido até ${escapeHtml(date)}. Não compartilhe o link, pois ele permite consultar seu boletim.</p><p>Se tiver dúvidas sobre a avaliação ou precisar de um novo acesso, responda a este e-mail.</p><p>Equipe de simulados ENEM<br>${escapeHtml(INSTITUTION())}</p></body></html>`;
 }
+export function reportLinkText(url:string,expiry:string) {
+  reportLinkHtml(url,expiry); // Mesma validação de URL aplicada às duas versões.
+  const date = new Intl.DateTimeFormat('pt-BR', {dateStyle:'short',timeStyle:'short',timeZone:'America/Fortaleza'}).format(new Date(expiry));
+  return `Olá,\n\nO professor responsável disponibilizou seu boletim do simulado ENEM no sistema de correção do ${INSTITUTION()}.\n\nConsulte o resultado e baixe o PDF: ${url}\n\nEste acesso individual é válido até ${date}. Não compartilhe o link.\n\nSe tiver dúvidas sobre a avaliação ou precisar de um novo acesso, responda a este e-mail.\n\nEquipe de simulados ENEM\n${INSTITUTION()}`;
+}
+
 type DeliveryRow = {id: number; resultado_id: number; destinatario: string; status: ReportDelivery['status']; content_hash: string; message_id: string; erro: string};
 export function escapeHtml(value: unknown): string { return String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]!)); }
 function canonicalArea(theme: string): string | undefined {
@@ -85,12 +92,13 @@ export class ReportEmailGateway {
   async deliver(report: StudentReport, url: string, idempotencyKey: string, expiry = new Date(Date.now() + linkTtl()).toISOString()): Promise<string> {
     const state = this.availability(); if (!state.envio_disponivel) throw new ServiceUnavailableException(state.envio_motivo);
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM!;
-    const subject = 'Seu boletim está disponível - Simulados ENEM';
+    const subject = 'Boletim do simulado ENEM - IFS Lagarto';
     const html = reportLinkHtml(url, expiry);
-    if (this.emailjs?.configured()) return this.emailjs.send(report.email!, subject, html);
+    const text = reportLinkText(url,expiry);
+    if (this.emailjs?.configured()) return this.emailjs.send(report.email!, subject, html, {message_text:text});
     if (process.env.RESEND_API_KEY) {
       const response = await fetch('https://api.resend.com/emails', {method: 'POST', headers: {Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey},
-        body: JSON.stringify({from, to: [report.email], subject, html}), signal: AbortSignal.timeout(30000)});
+        body: JSON.stringify({from, to: [report.email], subject, html, text, ...(process.env.EMAIL_REPLY_TO ? {reply_to:process.env.EMAIL_REPLY_TO} : {})}), signal: AbortSignal.timeout(30000)});
       const body = await response.json() as {id?: string; message?: string};
       if (!response.ok || !body.id) throw new Error('O provedor não confirmou o envio. Consulte o painel de emails antes de tentar novamente.');
       return body.id;
@@ -101,7 +109,7 @@ export class ReportEmailGateway {
       requireTLS: process.env.SMTP_SECURE !== 'true' && port !== 465,
       auth: {user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS!}, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 30000});
     try {
-      const result = await transport.sendMail({from, to: report.email!, subject, html});
+      const result = await transport.sendMail({from, to: report.email!, subject, html, text, ...(process.env.EMAIL_REPLY_TO ? {replyTo:process.env.EMAIL_REPLY_TO} : {})});
       if (!result.accepted?.length) throw new Error('O servidor de email não confirmou o destinatário.');
       return result.messageId;
     } finally { transport.close(); }
@@ -213,7 +221,10 @@ export class ReportsService {
     return {token, simulado_id: simuladoId, alunos: rows, total: rows.length, expira_em: expiry, ...this.email.availability()};
   }
   private async createAccess(row: DeliveryRow, operationHash: string) {
-    const token = randomBytes(32).toString('base64url'), now = new Date(), expiry = new Date(now.getTime() + linkTtl()).toISOString();
+    const token = randomBytes(32).toString('base64url'), now = new Date();
+    const {resultado,simulado} = await this.simulados.result(row.resultado_id);
+    const contact = await this.contacts.get(resultado.matricula) as {expira_em?:string} | undefined;
+    const expiry = new Date(Math.min(now.getTime() + linkTtl(), ...(simulado.expira_em ? [Date.parse(simulado.expira_em)] : []), ...(contact?.expira_em ? [Date.parse(contact.expira_em)] : []))).toISOString();
     const url = accessUrl(token);
     await this.db.run('INSERT INTO report_access_links(token_hash,delivery_id,operation_hash,criado_em,expira_em) VALUES(?,?,?,?,?)', sha256(token), row.id, operationHash, now.toISOString(), expiry);
     return {url, expiry, operationHash};
@@ -241,6 +252,7 @@ export class ReportsService {
   }
   async send(simuladoId: number, token: unknown, confirmation: unknown): Promise<DeliveryResult> {
     if (confirmation !== 'sim' || typeof token !== 'string' || !ACCESS_TOKEN_PATTERN.test(token)) throw new BadRequestException('Revise os destinatários e confirme o envio.');
+    await this.simulados.get(simuladoId);
     const availability = this.email.availability();
     if (!availability.envio_disponivel) throw new ServiceUnavailableException(availability.envio_motivo);
     linkTtl(); accessUrl(token);
@@ -266,6 +278,7 @@ export class ReportsService {
     return this.deliverReserved(reserved);
   }
   async planReissue(simuladoId: number, rawDeliveryId: unknown): Promise<DeliveryPlan & {reemissao: true; delivery_id: number}> {
+    await this.simulados.get(simuladoId);
     if (!Number.isSafeInteger(rawDeliveryId) || Number(rawDeliveryId) <= 0) throw new BadRequestException('Selecione uma entrega concluída para reemitir o link.');
     const row = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE id=?', rawDeliveryId as number);
     if (!row || row.status !== 'ENVIADO') throw new BadRequestException('Somente entregas confirmadas permitem reemitir um link. Verifique entregas ambíguas no provedor.');
@@ -281,6 +294,7 @@ export class ReportsService {
   }
   async reissue(simuladoId: number, token: unknown, confirmation: unknown): Promise<DeliveryResult> {
     if (confirmation !== 'sim' || typeof token !== 'string' || !ACCESS_TOKEN_PATTERN.test(token)) throw new BadRequestException('Revise o destinatário e confirme a reemissão do link.');
+    await this.simulados.get(simuladoId);
     const availability = this.email.availability();
     if (!availability.envio_disponivel) throw new ServiceUnavailableException(availability.envio_motivo);
     linkTtl(); accessUrl(token);
@@ -299,7 +313,7 @@ export class ReportsService {
       if (row.status !== 'ENVIADO' || row.content_hash !== plan.original_content_hash || row.destinatario !== plan.original_destinatario || (previous?.operation_hash || '') !== plan.original_operation_hash || report.simulado_id !== simuladoId || !report.apto_envio || report.content_hash !== plan.report.content_hash || report.email !== plan.report.email || report.matricula !== plan.report.matricula) throw new BadRequestException('O boletim, o destinatário ou a entrega mudou após a prévia. Revise um novo plano antes de reemitir.');
       const conflict = await this.db.get<{id:number}>('SELECT id FROM report_deliveries WHERE resultado_id=? AND destinatario=? AND content_hash=? AND id<>?', report.resultado_id, report.email!, report.content_hash, row.id);
       if (conflict) throw new BadRequestException('Já existe uma entrega dessa versão para este destinatário. Reemita o link da entrega correspondente.');
-      const claimed = await this.db.run('UPDATE report_deliveries SET status=?,destinatario=?,content_hash=?,message_id=?,erro=? WHERE id=? AND status=? AND destinatario=? AND content_hash=?', 'ENVIANDO', report.email!, report.content_hash, '', '', row.id, 'ENVIADO', row.destinatario, row.content_hash);
+      const claimed = await this.db.run('UPDATE report_deliveries SET status=?,destinatario=?,content_hash=?,message_id=?,erro=?,tentativa_em=? WHERE id=? AND status=? AND destinatario=? AND content_hash=?', 'ENVIANDO', report.email!, report.content_hash, '', '', new Date().toISOString(), row.id, 'ENVIADO', row.destinatario, row.content_hash);
       if (!claimed.changes) throw new BadRequestException('Esta entrega já está sendo atualizada. Revise a situação antes de reemitir.');
       await this.db.run('UPDATE report_access_links SET revogado_em=? WHERE delivery_id=? AND revogado_em IS NULL', new Date().toISOString(), row.id);
       const updated = {...row,status:'ENVIANDO' as const,destinatario:report.email!,content_hash:report.content_hash,message_id:'',erro:''};
@@ -314,7 +328,12 @@ export class ReportsService {
     const delivery = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE id=?', access.delivery_id);
     if (!delivery || delivery.status !== 'ENVIADO') throw new GoneException(INVALID_ACCESS_MESSAGE);
     let report: StudentReport;
-    try { report = await this.report(delivery.resultado_id); } catch { throw new GoneException(INVALID_ACCESS_MESSAGE); }
+    try {
+      const owner = await this.db.get<{owner_id:string}>(`SELECT s.owner_id FROM core_resultadoaluno r JOIN core_lotecorrecao l ON l.id=r.lote_id
+        JOIN core_simulado s ON s.id=l.simulado_id WHERE r.id=?`, delivery.resultado_id);
+      if (!owner) throw new GoneException(INVALID_ACCESS_MESSAGE);
+      report = await withAccount({id:owner.owner_id,email:''}, () => this.report(delivery.resultado_id));
+    } catch { throw new GoneException(INVALID_ACCESS_MESSAGE); }
     if (!report.apto_envio || report.content_hash !== delivery.content_hash || report.email !== delivery.destinatario) throw new GoneException(INVALID_ACCESS_MESSAGE);
     return {report,access};
   }
@@ -337,8 +356,23 @@ export class ReportsService {
     await this.db.run('DELETE FROM essay_import_plans WHERE expira_em<=?', now);
     await this.db.run('DELETE FROM contacts_import_plans WHERE expira_em<=?', now);
     await this.db.run('DELETE FROM report_delivery_plans WHERE expira_em<=?', now);
-    const expired = await this.proofImports?.cleanupExpired();
-    return {removidos:deleted.changes,...expired};
+    const expired = await this.proofImports?.cleanupAllExpired();
+    const simuladosRemovidos = await this.simulados.cleanupExpired();
+    const contatos = await this.db.run('DELETE FROM student_contacts WHERE expira_em<=?',now);
+    // Recibos de upload expiram em 30 min; URLs de upload podem durar 2 h.
+    // Não remove arquivos ainda referenciados por importações duráveis.
+    const uploads = await this.db.all<{id:string;path:string}>(`SELECT u.id,u.path FROM uploaded_files u WHERE u.created_at<=?
+      AND NOT EXISTS (SELECT 1 FROM proof_import_plans p WHERE p.payload LIKE '%' || u.path || '%') LIMIT 100`, new Date(Date.now()-2*3600_000).toISOString());
+    await this.db.transaction(async()=>{
+      for(const file of uploads) {
+        await this.db.run('INSERT INTO storage_deletions(path,criado_em) VALUES(?,?) ON CONFLICT(path) DO NOTHING',file.path,now);
+        await this.db.run('DELETE FROM uploaded_files WHERE id=?',file.id);
+      }
+    });
+    await this.db.run('DELETE FROM auth_attempt_limits WHERE window_at<=?',Date.now()-86400_000);
+    await this.db.run('DELETE FROM email_provider_slots WHERE next_at<=?',Date.now()-86400_000);
+    const arquivosRemovidos = await this.simulados.cleanStorage();
+    return {removidos:deleted.changes,...expired,simulados_removidos:simuladosRemovidos,contatos_removidos:contatos.changes,recibos_removidos:uploads.length,arquivos_removidos:arquivosRemovidos};
   }
   async deliveries(simuladoId: number) {
     await this.simulados.get(simuladoId);

@@ -1,4 +1,4 @@
-const {test, before, after} = require('node:test');
+const {test, before, after} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, readdirSync} = require('node:fs');
 const {tmpdir} = require('node:os');
@@ -79,8 +79,9 @@ function proofs(names, buffer = photo, matriculas) {
   return form;
 }
 before(async () => { app = await createApplication(false);
+  await app.get(require('../dist/database.service').DatabaseService).run("UPDATE core_simulado SET owner_id=? WHERE owner_id=''", '11111111-1111-4111-8111-111111111111');
   // Somente este processo de teste usa uma identidade fictícia; a aplicação mantém o middleware ativo.
-  app.get(AuthService).user=async()=>({email:'professor-ficticio@example.test'}); await app.listen(0, '127.0.0.1'); base = `http://127.0.0.1:${app.getHttpServer().address().port}/api`; });
+  app.get(AuthService).user=async()=>({id:'11111111-1111-4111-8111-111111111111',email:'professor-ficticio@example.test'}); await app.listen(0, '127.0.0.1'); base = `http://127.0.0.1:${app.getHttpServer().address().port}/api`; });
 after(async () => { if (app) await app.close(); rmSync(temp, {recursive: true, force: true}); });
 
 test('migra o esquema do SQLite sem perder IDs, notas ou respostas existentes', async () => {

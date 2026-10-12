@@ -58,7 +58,7 @@ test('SQLite legado acrescenta curso sem alterar contato nem zeros da matrícula
   const db = new DatabaseService();
   try {
     assert.deepEqual({...await db.get('SELECT * FROM student_contacts WHERE matricula=?', '0000123')}, {
-      matricula: '0000123', email: 'fixture@example.test', nome: 'Aluno fictício', atualizado_em: 'previous-date', curso: '',
+      matricula: '0000123', email: 'fixture@example.test', nome: 'Aluno fictício', atualizado_em: 'previous-date', curso: '', owner_id:'', expira_em:null,
     });
     await db.run('UPDATE student_contacts SET curso=? WHERE matricula=?', 'Edificações', '0000123');
     assert.equal((await db.get('SELECT * FROM student_contacts WHERE matricula=?', '0000123')).curso, 'Edificações');

@@ -4,6 +4,7 @@ import { extname } from 'node:path';
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 import { DatabaseService } from './database.service';
+import { accountId, dataExpiry } from './account-context';
 import type { StudentContact, ContactImportPreview } from '@enem/shared/src/reports';
 
 export function sha256(value: string): string { return createHash('sha256').update(value).digest('hex'); }
@@ -19,8 +20,8 @@ function contactComparable(value?: StudentContact) { return value ? {matricula: 
 @Injectable()
 export class ContactsService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
-  async list(): Promise<{contatos: StudentContact[]}> { return {contatos: await this.db.all<StudentContact>('SELECT * FROM student_contacts ORDER BY matricula')}; }
-  async get(matricula: string): Promise<StudentContact | undefined> { return this.db.get<StudentContact>('SELECT * FROM student_contacts WHERE matricula=?', matricula); }
+  async list(): Promise<{contatos: StudentContact[]}> { return {contatos: await this.db.all<StudentContact>('SELECT matricula,email,nome,curso,atualizado_em,expira_em FROM student_contacts WHERE owner_id=? AND (expira_em IS NULL OR expira_em>?) ORDER BY matricula', accountId(), new Date().toISOString())}; }
+  async get(matricula: string): Promise<StudentContact | undefined> { return this.db.get<StudentContact>('SELECT matricula,email,nome,curso,atualizado_em,expira_em FROM student_contacts WHERE matricula=? AND owner_id=? AND (expira_em IS NULL OR expira_em>?)', matricula, accountId(), new Date().toISOString()); }
   template(): string { return '\uFEFFmatricula,email,nome,curso\r\n000123,aluno@example.com,Aluno de exemplo,Curso de exemplo\r\n'; }
   private async fingerprint(contacts: StudentContact[]) {
     const state = await Promise.all(contacts.map(async contact => contactComparable(await this.get(contact.matricula))));
@@ -91,21 +92,21 @@ export class ContactsService {
     }
     const token = randomBytes(32).toString('base64url'), now = new Date(), expiry = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
     // Store only validated previews. Invalid files cannot be partially imported.
-    if (!errors.length && contacts.length) await this.db.run('INSERT INTO contacts_import_plans(token_hash,payload,expira_em,criado_em) VALUES(?,?,?,?)', sha256(token), JSON.stringify({contacts, fingerprint: await this.fingerprint(contacts)}), expiry, now.toISOString());
+    if (!errors.length && contacts.length) await this.db.run('INSERT INTO contacts_import_plans(owner_id,token_hash,payload,expira_em,criado_em) VALUES(?,?,?,?,?)', accountId(), sha256(token), JSON.stringify({contacts, fingerprint: await this.fingerprint(contacts)}), expiry, now.toISOString());
     else if (!contacts.length && !errors.length) errors.push('Nenhum contato válido encontrado.');
     return {token: errors.length ? '' : token, contatos: contacts, erros: errors, avisos: warnings, total: contacts.length, expira_em: expiry};
   }
   async import(token: unknown, confirmation: unknown): Promise<{message: string; total: number}> {
     if (confirmation !== 'sim' || typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new BadRequestException('Revise a prévia e confirme a importação.');
     return this.db.transaction(async () => {
-      const saved = await this.db.get<{payload: string; expira_em: string}>('SELECT payload,expira_em FROM contacts_import_plans WHERE token_hash=?', sha256(token));
+      const saved = await this.db.get<{payload: string; expira_em: string}>('SELECT payload,expira_em FROM contacts_import_plans WHERE token_hash=? AND owner_id=?', sha256(token), accountId());
       if (!saved || new Date(saved.expira_em).getTime() <= Date.now()) throw new BadRequestException('A prévia expirou ou já foi utilizada. Envie a planilha novamente.');
       const plan = JSON.parse(saved.payload) as {contacts: StudentContact[]; fingerprint: string};
       if (plan.fingerprint !== await this.fingerprint(plan.contacts)) throw new BadRequestException('Os contatos mudaram após a prévia. Envie a planilha novamente para revisar as alterações.');
       const now = new Date().toISOString();
-      for (const contact of plan.contacts) await this.db.run(`INSERT INTO student_contacts(matricula,email,nome,curso,atualizado_em) VALUES(?,?,?,?,?)
-        ON CONFLICT(matricula) DO UPDATE SET email=excluded.email,nome=excluded.nome,curso=excluded.curso,atualizado_em=excluded.atualizado_em`, contact.matricula, contact.email, contact.nome, contact.curso || '', now);
-      await this.db.run('DELETE FROM contacts_import_plans WHERE token_hash=?', sha256(token));
+      for (const contact of plan.contacts) await this.db.run(`INSERT INTO student_contacts(matricula,email,nome,curso,atualizado_em,owner_id,expira_em) VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(owner_id,matricula) DO UPDATE SET email=excluded.email,nome=excluded.nome,curso=excluded.curso,atualizado_em=excluded.atualizado_em,expira_em=excluded.expira_em`, contact.matricula, contact.email, contact.nome, contact.curso || '', now, accountId(), dataExpiry());
+      await this.db.run('DELETE FROM contacts_import_plans WHERE token_hash=? AND owner_id=?', sha256(token), accountId());
       return {message: `${plan.contacts.length} contatos importados.`, total: plan.contacts.length};
     });
   }

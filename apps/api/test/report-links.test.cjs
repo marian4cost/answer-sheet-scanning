@@ -1,4 +1,4 @@
-const {test,before,after} = require('node:test');
+const {test,before,after} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync,rmSync,readFileSync} = require('node:fs');
 const {tmpdir} = require('node:os');
@@ -20,11 +20,11 @@ async function fixture(deliver) {
   const name='FICTICIO'+(++sequence),now=new Date().toISOString();
   const key=Object.fromEntries(Array.from({length:50},(_,i)=>[String(i+1),'ABCDE'[i%5]]));
   const themes=[{inicio:1,fim:15,tema:'Linguagens'},{inicio:16,fim:30,tema:'Ciências da Natureza'},{inicio:31,fim:40,tema:'Matemática'},{inicio:41,fim:50,tema:'Ciências Humanas'}];
-  const sim=await db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)','Simulado fictício',now,JSON.stringify(key),50,JSON.stringify(themes));
+  const sim=await db.run("INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas,owner_id) VALUES(?,?,?,?,?,'11111111-1111-4111-8111-111111111111')",'Simulado fictício',now,JSON.stringify(key),50,JSON.stringify(themes));
   const batch=await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',now,sim.lastInsertRowid,JSON.stringify(key));
   const score=grade(key,key,'OK',50);
   const row=await db.run('INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,total_incertas,nota_percentual,status,lote_id,mensagem_leitura) VALUES(?,?,?,?,?,?,?,?,?,?,?)',name,JSON.stringify(key),score.total_acertos,0,0,0,0,100,'OK',batch.lastInsertRowid,'');
-  await db.run('INSERT INTO student_contacts(matricula,email,nome,curso,atualizado_em) VALUES(?,?,?,?,?)',name,name.toLowerCase()+'@example.com','Estudante fictício','Curso fictício',now);
+  await db.run("INSERT INTO student_contacts(matricula,email,nome,curso,atualizado_em,owner_id) VALUES(?,?,?,?,?,'11111111-1111-4111-8111-111111111111')",name,name.toLowerCase()+'@example.com','Estudante fictício','Curso fictício',now);
   const messages=[];
   const gateway={availability:()=>({envio_disponivel:true,envio_motivo:'Provedor fictício.'}),deliver:async(report,url,idem,expiry)=>{messages.push({report,url,idem,expiry});return deliver ? deliver(report,url,idem,expiry) : 'fake-message-'+messages.length;}};
   const reports=new ReportsService(db,simulados,contacts,gateway);
@@ -38,7 +38,7 @@ test('email de boletim contém apenas mensagem curta e link, sem notas, resposta
   const gateway=new ReportEmailGateway({configured:()=>true,send:async(...args)=>{calls.push(args);return 'emailjs-accepted';}});
   const token=randomBytes(32).toString('base64url'),url='https://ficticio.example.com/boletim#'+token;
   await gateway.deliver(report,url,'test-key','2030-01-01T12:00:00.000Z');
-  assert.equal(calls[0][0],report.email);assert.match(calls[0][2],/Ver meu boletim/);assert.ok(calls[0][2].includes(url));
+  assert.equal(calls[0][0],report.email);assert.match(calls[0][2],/https:\/\/ficticio\.example\.com\/boletim/);assert.ok(calls[0][2].includes(url));
   for(const privateText of [report.matricula,report.nome,report.curso,'100 / 1000','Questões','<table','PDF em anexo']) assert.ok(!calls[0][2].includes(privateText),privateText);
   assert.equal(gateway.availability().envio_disponivel,true);
   assert.throws(()=>reportLinkHtml('javascript:alert(1)','2030-01-01T00:00:00.000Z'),/inválido/);

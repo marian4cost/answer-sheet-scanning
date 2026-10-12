@@ -9,8 +9,9 @@ import { MEDIA_ROOT, STORAGE_MODE } from './config';
 import { StorageService } from './storage.service';
 import { grade, gradeThemes, indicators, invalidQuestions } from './grading';
 import { questionCount, themeRanges } from './question-config';
+import { accountId, dataExpiry, retentionDays, withAccount } from './account-context';
 
-type SimuladoRow = Omit<Simulado, 'gabarito_oficial' | 'gabarito_valido' | 'temas'> & {gabarito_oficial: string; temas: string};
+type SimuladoRow = Omit<Simulado, 'gabarito_oficial' | 'gabarito_valido' | 'temas'> & {gabarito_oficial: string; temas: string; owner_id: string};
 type ResultRow = Omit<Resultado, 'respostas_detectadas' | 'gabarito_do_envio' | 'desempenho_temas'> & {respostas_detectadas: string; gabarito_snapshot: string};
 const SIMULADO_SQL = `SELECT s.*, (SELECT CAST(COUNT(*) AS INTEGER) FROM core_lotecorrecao l JOIN core_resultadoaluno r ON r.lote_id=l.id WHERE l.simulado_id=s.id) total_provas,
   (SELECT CAST(COUNT(*) AS INTEGER) FROM core_lotecorrecao l WHERE l.simulado_id=s.id) total_envios FROM core_simulado s`;
@@ -22,7 +23,8 @@ function dateISO(value: string) {
 }
 function simuladoDTO(row: SimuladoRow): Simulado {
   const key = JSON.parse(row.gabarito_oficial) as AnswerKey;
-  return {...row, temas: JSON.parse(row.temas), data_criacao: dateISO(row.data_criacao), gabarito_oficial: key,
+  const {owner_id, ...publicRow} = row;
+  return {...publicRow, temas: JSON.parse(row.temas), data_criacao: dateISO(row.data_criacao), gabarito_oficial: key,
     gabarito_valido: Object.keys(key).length === row.total_questoes && invalidQuestions(key, row.total_questoes).length === 0};
 }
 function envioDTO(row: Envio): Envio { return {...row, criado_em: dateISO(row.criado_em)}; }
@@ -32,19 +34,19 @@ function resultDTO(row: ResultRow, simulado: Simulado): Resultado {
   return {...rest, respostas_detectadas: answers,
     gabarito_do_envio: key, criado_em: dateISO(row.criado_em),
     desempenho_temas: gradeThemes(answers, key, row.status, simulado.total_questoes, simulado.temas),
-    imagem_debug: row.imagem_debug ? (STORAGE_MODE === 'supabase' ? `/api/resultados/${row.id}/imagem` : '/media/' + row.imagem_debug.replace(/^\/+/, '')) : null};
+    imagem_debug: row.imagem_debug ? `/api/resultados/${row.id}/imagem` : null};
 }
 
 @Injectable()
 export class SimuladosService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService, @Inject(OmrService) private readonly omr: OmrService, @Inject(StorageService) private readonly storage: StorageService) {}
   async dashboard(): Promise<DashboardData> {
-    const simulados = (await this.db.all<SimuladoRow>(SIMULADO_SQL + ' ORDER BY s.data_criacao DESC, s.id DESC')).map(simuladoDTO);
-    const envios = (await this.db.all<Envio>(ENVIO_SQL + ' GROUP BY l.id, l.simulado_id, l.criado_em, s.titulo ORDER BY l.criado_em DESC, l.id DESC LIMIT 10')).map(envioDTO);
-    return {simulados, envios_recentes: envios, total_simulados: simulados.length, total_provas: simulados.reduce((sum, s) => sum + s.total_provas, 0)};
+    const simulados = (await this.db.all<SimuladoRow>(SIMULADO_SQL + ' WHERE s.owner_id=? AND (s.expira_em IS NULL OR s.expira_em>?) ORDER BY s.data_criacao DESC, s.id DESC', accountId(), new Date().toISOString())).map(simuladoDTO);
+    const envios = (await this.db.all<Envio>(ENVIO_SQL + ' WHERE s.owner_id=? AND (s.expira_em IS NULL OR s.expira_em>?) GROUP BY l.id, l.simulado_id, l.criado_em, s.titulo ORDER BY l.criado_em DESC, l.id DESC LIMIT 10', accountId(), new Date().toISOString())).map(envioDTO);
+    return {simulados, envios_recentes: envios, total_simulados: simulados.length, total_provas: simulados.reduce((sum, s) => sum + s.total_provas, 0), retencao_dias: retentionDays()};
   }
   async get(id: number): Promise<Simulado> {
-    const row = await this.db.get<SimuladoRow>(SIMULADO_SQL + ' WHERE s.id=?', id);
+    const row = await this.db.get<SimuladoRow>(SIMULADO_SQL + ' WHERE s.id=? AND s.owner_id=? AND (s.expira_em IS NULL OR s.expira_em>?)', id, accountId(), new Date().toISOString());
     if (!row) throw new NotFoundException('Simulado não encontrado.');
     return simuladoDTO(row);
   }
@@ -94,6 +96,7 @@ export class SimuladosService {
     return value.trim();
   }
   async debugImage(id: number) {
+    await this.result(id);
     const row = await this.db.get<{imagem_debug: string | null}>('SELECT imagem_debug FROM core_resultadoaluno WHERE id=?', id);
     if (!row?.imagem_debug) throw new NotFoundException('Imagem de conferência não encontrada.');
     return this.storage.get(row.imagem_debug);
@@ -114,13 +117,14 @@ export class SimuladosService {
     }
   }
   async create(titulo: unknown, file?: Express.Multer.File, rawCount?: unknown, rawThemes?: unknown, rawManualKey?: unknown): Promise<Simulado> {
+    const owner = accountId();
     try {
       if (typeof titulo !== 'string' || !titulo.trim() || titulo.trim().length > 255) {
         throw new BadRequestException('Informe um título de até 255 caracteres.');
       }
       const count = questionCount(rawCount), themes = themeRanges(rawThemes, count);
       const key = rawManualKey === undefined || rawManualKey === '' ? await this.readOfficial(file, count) : this.manualKey(rawManualKey, count);
-      const result = await this.db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas) VALUES(?,?,?,?,?)', titulo.trim(), new Date().toISOString(), JSON.stringify(key), count, JSON.stringify(themes));
+      const result = await this.db.run('INSERT INTO core_simulado(titulo,data_criacao,gabarito_oficial,total_questoes,temas,owner_id,expira_em) VALUES(?,?,?,?,?,?,?)', titulo.trim(), new Date().toISOString(), JSON.stringify(key), count, JSON.stringify(themes), owner, dataExpiry());
       return this.get(Number(result.lastInsertRowid));
     } finally { if (file) await this.cleanup([file]); }
   }
@@ -224,20 +228,57 @@ export class SimuladosService {
       if (!committed && STORAGE_MODE === 'supabase') await Promise.all(staged.flatMap(e => [this.storage.remove(e.input), this.storage.remove(e.debug)]).map(task => task.catch(() => undefined)));
     }
   }
-  async delete(id: number, confirmation: unknown) {
+  async delete(id: number, confirmation: unknown, expiredOnly = false) {
     if (confirmation !== 'sim') throw new BadRequestException('Confirme a exclusão do simulado.');
-    const simulado = await this.get(id);
-    const pending = await this.db.all<{payload:string}>('SELECT payload FROM proof_import_plans WHERE simulado_id=?', id);
-    const temporaryFiles = pending.flatMap(row => {
-      const payload = JSON.parse(row.payload) as {files?:Array<{key?:string}>};
-      return (payload.files || []).map(file=>file.key).filter((key):key is string=>typeof key==='string' && /^(importing|incoming)\/[0-9a-f-]+\.[a-z0-9]+$/i.test(key));
-    });
+    const owner = accountId();
+    const simulado = expiredOnly ? await this.db.get<SimuladoRow>(SIMULADO_SQL + ' WHERE s.id=? AND s.owner_id=? AND s.expira_em<=?', id, owner, new Date().toISOString()) : await this.get(id);
+    if (!simulado) throw new NotFoundException('Simulado não encontrado.');
     await this.db.transaction(async () => {
+      const current = await this.db.get<{id:number}>('SELECT id FROM core_simulado WHERE id=? AND owner_id=?' + (expiredOnly ? ' AND expira_em<=?' : ''), id, owner, ...(expiredOnly ? [new Date().toISOString()] : []));
+      if (!current) throw new NotFoundException('Simulado não encontrado.');
+      // Aguarda operações com envio externo ou leitura em andamento antes da limpeza.
+      const busy = await this.db.get<{total:number}>(`SELECT COUNT(*) total FROM proof_import_pages p JOIN proof_import_plans i ON i.id=p.plan_id
+        WHERE i.simulado_id=? AND p.estado='PROCESSANDO' AND p.claim_at>?`, id, new Date(Date.now()-120_000).toISOString());
+      const sending = await this.db.get<{total:number}>(`SELECT COUNT(*) total FROM report_deliveries d JOIN core_resultadoaluno r ON r.id=d.resultado_id
+        JOIN core_lotecorrecao l ON l.id=r.lote_id WHERE l.simulado_id=? AND d.status='ENVIANDO' AND COALESCE(d.tentativa_em,d.criado_em)>?`, id, new Date(Date.now()-120_000).toISOString());
+      if (Number(busy?.total) || Number(sending?.total)) throw new BadRequestException('Há provas ou e-mails em processamento. Aguarde a operação terminar.');
+      const pending = await this.db.all<{payload:string}>('SELECT payload FROM proof_import_plans WHERE simulado_id=?', id);
+      const keys = new Set<string>();
+      for (const row of pending) {
+        const payload = JSON.parse(row.payload) as {files?:Array<{key?:string}>};
+        for (const file of payload.files || []) if (typeof file.key === 'string' && /^(importing|incoming)\/[0-9a-f-]+\.[a-z0-9]+$/i.test(file.key)) keys.add(file.key);
+      }
+      const images = await this.db.all<{imagem_debug:string|null; arquivo_origem:string; matricula_fonte:string}>(`SELECT r.imagem_debug,r.arquivo_origem,r.matricula_fonte FROM core_resultadoaluno r
+        JOIN core_lotecorrecao l ON l.id=r.lote_id WHERE l.simulado_id=?`, id);
+      for (const image of images) if (image.imagem_debug) {
+        keys.add(image.imagem_debug);
+        const uuid = image.imagem_debug.match(/^debug_images\/([0-9a-f-]+)_debug\.png$/i)?.[1];
+        const extension = extname(image.arquivo_origem || '').toLowerCase();
+        if (uuid && /^(\.pdf|\.png|\.jpe?g|\.webp|\.bmp|\.tiff?)$/.test(extension)) keys.add('uploads/' + uuid + extension);
+      }
+      for (const key of keys) await this.db.run('INSERT INTO storage_deletions(path,criado_em) VALUES(?,?) ON CONFLICT(path) DO NOTHING', key, new Date().toISOString());
       await this.db.run('DELETE FROM core_resultadoaluno WHERE lote_id IN (SELECT id FROM core_lotecorrecao WHERE simulado_id=?)', id);
       await this.db.run('DELETE FROM core_lotecorrecao WHERE simulado_id=?', id);
-      await this.db.run('DELETE FROM core_simulado WHERE id=?', id);
+      await this.db.run('DELETE FROM core_simulado WHERE id=? AND owner_id=?', id, owner);
     });
-    await Promise.all(temporaryFiles.map(key=>this.storage.remove(key).catch(()=>undefined)));
+    await this.cleanStorage();
     return {message: `Simulado '${simulado.titulo}' e seus resultados foram excluídos.`};
+  }
+  async cleanStorage() {
+    const files = await this.db.all<{path:string}>('SELECT path FROM storage_deletions ORDER BY criado_em LIMIT 100');
+    let removed = 0;
+    for (const file of files) try {
+      await this.storage.remove(file.path);
+      await this.db.run('DELETE FROM storage_deletions WHERE path=?', file.path); removed++;
+    } catch { /* O registro mantém a remoção pendente para a próxima limpeza. */ }
+    return removed;
+  }
+  async cleanupExpired() {
+    const expired = await this.db.all<{id:number;owner_id:string}>('SELECT id,owner_id FROM core_simulado WHERE owner_id<>? AND expira_em<=? ORDER BY expira_em LIMIT 20', '', new Date().toISOString());
+    let removed = 0;
+    for (const row of expired) try {
+      await withAccount({id:row.owner_id,email:''}, () => this.delete(row.id,'sim',true)); removed++;
+    } catch { /* Concorrência ou erro transitório: tenta novamente no próximo cron. */ }
+    return removed;
   }
 }
