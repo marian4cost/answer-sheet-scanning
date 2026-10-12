@@ -111,3 +111,15 @@ test('limites IP e email são aplicados antes de lookup ou verificação remota'
 test('logout e sessão preservam Secure HttpOnly e nunca retornam tokens',async(t)=>{
   provider(t,user);const auth=new AuthService(),res=response(),result=await auth.session('mock-token',res);assert.equal(result.role,'professor');assert.doesNotMatch(JSON.stringify(result),/mock-token/);assert.equal(res.cookies[0][2].secure,true);assert.deepEqual(auth.logout(res),{ok:true});assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
 });
+test('exclusão administrativa aceita resposta sem corpo e envia apenas ao usuário individual',async(t)=>{
+  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(null,{status:204});});
+  const result=await new AuthService().adminRequest('admin/users/'+UUID,'DELETE',{should_soft_delete:false});
+  assert.deepEqual(result,{});assert.equal(calls.length,1);assert.equal(calls[0].options.method,'DELETE');
+  assert.equal(calls[0].options.headers.Authorization,'Bearer fake-server-key');assert.deepEqual(JSON.parse(calls[0].options.body),{should_soft_delete:false});
+  assert.equal(new URL(calls[0].url).pathname,'/auth/v1/admin/users/'+UUID);
+});
+test('exclusão administrativa rejeita coleção, consulta e caminhos arbitrários antes da chamada remota',async(t)=>{
+  const calls=provider(t,{}),auth=new AuthService();
+  for(const path of ['admin/users','admin/users?page=1&per_page=200','admin/users/'+UUID+'/extra','../admin/users/'+UUID])await assert.rejects(auth.adminRequest(path,'DELETE'),error=>error.getStatus()===400);
+  assert.equal(calls.length,0);
+});

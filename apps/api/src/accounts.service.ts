@@ -56,9 +56,9 @@ export class AccountsService {
       const existing = (await this.auth.providerAccounts()).find(user => user.email?.toLowerCase() === email);
       if (existing) throw new ConflictException('Já existe uma conta com este e-mail. Altere o perfil da conta existente.');
       const created = await this.auth.adminRequest<SupabaseAccount>('admin/users','POST',{
-        email,password,email_confirm:false,app_metadata:{role:accountRole},user_metadata:{display_name:nome},
+        email,password,email_confirm:true,app_metadata:{role:accountRole},user_metadata:{display_name:nome},
       });
-      if (created.email?.toLowerCase() !== email || roleFrom(created) !== accountRole) throw new ServiceUnavailableException('Não foi possível confirmar a criação da conta. Confira a lista antes de tentar novamente.');
+      if (created.email?.toLowerCase() !== email || roleFrom(created) !== accountRole || !teacherAllowed(created)) throw new ServiceUnavailableException('Não foi possível confirmar a criação da conta. Confira a lista antes de tentar novamente.');
       return accountProfile(created) as AccountProfile;
     });
   }
@@ -87,6 +87,26 @@ export class AccountsService {
     const updated = await this.auth.adminRequest<SupabaseAccount>('admin/users/' + acting.id,'PUT',{user_metadata:{...previous.user_metadata,display_name:nome}});
     if (updated.id !== acting.id) throw new ServiceUnavailableException('Não foi possível atualizar o perfil.');
     return accountProfile(updated) as AccountProfile;
+  }
+  async delete(id: string, value: unknown): Promise<{id:string; message:string}> {
+    const acting = this.administrator(), input = object(value,['confirmar','email']);
+    if (!UUID.test(id)) throw new BadRequestException('Identidade da conta inválida.');
+    id = id.toLowerCase();
+    if (id === acting.id.toLowerCase()) throw new ConflictException('Você não pode excluir sua própria conta de administrador.');
+    if (input.confirmar !== 'excluir' || typeof input.email !== 'string') throw new BadRequestException('Digite o e-mail da conta e confirme a exclusão.');
+    await this.auth.quota('admin-delete:' + acting.id,3600_000,20);
+    return this.locked(async () => {
+      const users = await this.auth.providerAccounts(), target = users.find(user => user.id === id);
+      if (!target || !roleFrom(target)) throw new NotFoundException('Conta não encontrada.');
+      if (input.email !== target.email) throw new ConflictException('O e-mail não corresponde à conta selecionada. Atualize a lista antes de excluir.');
+      if (roleFrom(target) === 'admin' && !users.some(user => user.id !== id && roleFrom(user) === 'admin' && teacherAllowed(user))) {
+        throw new ConflictException('Mantenha ao menos um administrador com acesso ativo.');
+      }
+      // Remove o acesso no provedor. Dados acadêmicos conservam o proprietário
+      // e o vencimento original; uma nova conta com o mesmo e-mail não os herda.
+      await this.auth.adminRequest('admin/users/' + id,'DELETE',{should_soft_delete:false});
+      return {id,message:'Usuário excluído. O histórico acadêmico permanece privado até o vencimento da retenção.'};
+    });
   }
 }
 function roleFrom(user: SupabaseAccount) { return accountRole(user); }

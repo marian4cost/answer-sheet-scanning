@@ -42,11 +42,11 @@ export function Badge({status}: {status: ReadingStatus}) {
   const labels = {SUCESSO: 'Sucesso', ALERTA_RASURA: 'Marcação dupla', ALERTA_REVISAO: 'Revisão necessária', ERRO_LEITURA: 'Erro de leitura'};
   return <span className={`status ${status.toLowerCase()}`}>{labels[status]}</span>;
 }
-export function Modal({title, children, onClose}: {title: string; children: ReactNode; onClose: () => void}) {
+export function Modal({title, children, onClose, closeLabel = 'Fechar espelho', preventClose = false, className = ''}: {title: string; children: ReactNode; onClose: () => void; closeLabel?: string; preventClose?: boolean; className?: string}) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { ref.current?.showModal(); }, []);
-  return <dialog ref={ref} className="modal" onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <header className="modal-header"><h2>{title}</h2><button className="icon-button" type="button" onClick={onClose} aria-label="Fechar espelho"><X/></button></header>
+  return <dialog ref={ref} className={`modal ${className}`} onCancel={event => {if (preventClose) event.preventDefault(); else onClose();}} onClick={event => { if (!preventClose && event.target === event.currentTarget) onClose(); }}>
+    <header className="modal-header"><h2>{title}</h2><button className="icon-button" type="button" disabled={preventClose} onClick={onClose} aria-label={closeLabel}><X/></button></header>
     {children}
   </dialog>;
 }

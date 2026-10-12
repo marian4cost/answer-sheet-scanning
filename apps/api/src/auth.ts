@@ -43,7 +43,7 @@ export function requestToken(request: Request) {
 export class AuthService {
   constructor(@Optional() @Inject(DatabaseService) private readonly db?: DatabaseService, @Optional() @Inject(EmailJsService) private readonly emailjs?: EmailJsService) {}
   config() { return {required:true, configured:!!SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY, registration_enabled:false}; }
-  private async call(path: string, body?: object, token?: string, admin = false, method?: 'GET'|'POST'|'PUT') {
+  private async call(path: string, body?: object, token?: string, admin = false, method?: 'GET'|'POST'|'PUT'|'DELETE') {
     if (!this.config().configured) throw new UnauthorizedException('O acesso dos professores ainda não foi configurado.');
     const key = admin ? process.env.SUPABASE_SERVICE_ROLE_KEY : process.env.SUPABASE_ANON_KEY;
     if (!key) throw new ServiceUnavailableException('A administração de contas ainda não foi configurada.');
@@ -53,6 +53,7 @@ export class AuthService {
         headers:{apikey:key,'Content-Type':'application/json',...(token || admin ? {Authorization:'Bearer ' + (token || key)} : {})},
         ...(body ? {body:JSON.stringify(body)} : {}), signal:AbortSignal.timeout(10_000)});
     } catch { throw new ServiceUnavailableException('O serviço de acesso não respondeu. Tente novamente.'); }
+    if (admin && method === 'DELETE' && result.status === 204) return {};
     const data = await result.json().catch(() => null);
     if (!result.ok || !data) {
       if (admin && result.status === 422 && ['email_exists','email_address_not_authorized','user_already_exists'].includes(data?.code)) throw new ConflictException('Já existe uma conta com este e-mail, ou o endereço não pode ser utilizado.');
@@ -61,8 +62,9 @@ export class AuthService {
     }
     return data;
   }
-  async adminRequest<T>(path: string, method: 'GET'|'POST'|'PUT' = 'GET', body?: object): Promise<T> {
+  async adminRequest<T>(path: string, method: 'GET'|'POST'|'PUT'|'DELETE' = 'GET', body?: object): Promise<T> {
     if (!/^admin\/users(?:\/[0-9a-f-]{36}|\?page=\d+&per_page=200)?$/i.test(path)) throw new BadRequestException('Operação de contas inválida.');
+    if (method === 'DELETE' && !/^admin\/users\/[0-9a-f-]{36}$/i.test(path)) throw new BadRequestException('Selecione uma conta para excluir.');
     return this.call(path, body, undefined, true, method) as Promise<T>;
   }
   async providerAccounts(): Promise<SupabaseAccount[]> {

@@ -33,7 +33,7 @@ export function LoginView() {
   }
   if (!config) return <Loading/>;
   return <div className="narrow"><section className="card"><h1>Acesso dos professores</h1><p>Instituto Federal de Sergipe - Campus Lagarto</p>
-    <p className="help">As contas são criadas pelo administrador do SIRENIA. Se você recebeu uma conta nova, use o código por e-mail para confirmar seu acesso.</p>
+    <p className="help">As contas são criadas pelo administrador do SIRENIA. Entre com o e-mail e a senha que ele definiu para você.</p>
     <form onSubmit={submit}><label className="field-label" htmlFor="email">E-mail</label><input id="email" type="email" autoComplete="email" required value={email} disabled={busy || sent} onChange={event=>setEmail(event.target.value)}/>
       {!sent && mode==='senha' && <><label className="field-label" htmlFor="senha">Senha</label><input id="senha" type="password" autoComplete="current-password" required minLength={8} maxLength={128} disabled={busy} value={password} onChange={event=>setPassword(event.target.value)}/></>}
       {sent && <><p className="help">Enviamos um código para seu e-mail. Confira também a pasta de spam. Solicite outro após um minuto se necessário.</p><label className="field-label" htmlFor="codigo">Código de acesso</label><input id="codigo" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6,10}" required minLength={6} maxLength={10} disabled={busy} value={code} onChange={event=>setCode(event.target.value)}/></>}
