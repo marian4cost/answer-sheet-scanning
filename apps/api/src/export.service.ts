@@ -36,7 +36,7 @@ export class ExportService {
   constructor(@Optional() @Inject(DatabaseService) private readonly db?: DatabaseService) {}
   async create(data: ResultsData): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'OMR Enem Reader';
+    workbook.creator = 'SIRENIA';
     const sheet = workbook.addWorksheet('Resultados_OMR');
     const columns = ['Matrícula', 'Envio', 'Data_Envio', ...Array.from({length: data.simulado.total_questoes}, (_, i) => `Q${i + 1}`),
       'Total_Acertos', 'Total_Erros', 'Total_Anuladas', 'Total_Em_Branco', 'Total_Incertas', 'Status', 'Detalhes_Leitura', 'Pontuacao_Percentual', 'Arquivo_Origem', 'Pagina_Origem', 'Fonte_Matricula'];

@@ -1,4 +1,6 @@
-# OMR Enem Reader
+# SIRENIA
+
+**Simulados e Revisões para o Enem corrigidos com Inteligência Artificial**, com a identidade do MOREA.
 
 Corretor de simulados do **Instituto Federal de Sergipe - Campus Lagarto**: interface Next.js, backend NestJS e processamento Python/OpenCV. Aceita **50 a 60 questões**, alternativas A a E, histórico acumulado, desempenho por tema, Excel e boletins individuais.
 
@@ -20,7 +22,7 @@ npm start
 
 Abra **http://localhost:3000**. A API local atende em `http://127.0.0.1:3001/api`. `./run_server.sh` também inicia e compila quando o build está ausente; `Ctrl+C` encerra os processos. Para desenvolvimento, use `npm run dev`.
 
-Se precisar configurar caminhos ou portas, copie `.env.example` para `.env` **somente se ainda não houver `.env`**. Preserve os valores de um arquivo existente. O padrão local usa `db.sqlite3`, `media/`, `venv/bin/python` e autenticação desligada apenas em loopback. Uma `DATABASE_URL` preenchida ativa PostgreSQL. Após mudar `API_BASE_URL` ou as portas, recompile: as rewrites do Next.js são definidas no build.
+Se precisar configurar caminhos ou portas, copie `.env.example` para `.env` **somente se ainda não houver `.env`**. Preserve os valores de um arquivo existente. O padrão local usa `db.sqlite3`, `media/`, `venv/bin/python` e exige autenticação dos professores, inclusive em localhost. Configure o acesso pelo Supabase; não desative a autenticação. Uma `DATABASE_URL` preenchida ativa PostgreSQL. Após mudar `API_BASE_URL` ou as portas, recompile: as rewrites do Next.js são definidas no build.
 
 ## Gabarito, provas e matrículas
 

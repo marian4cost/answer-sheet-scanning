@@ -2,7 +2,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle2, X, LoaderCircle, AlertCircle, Inbox, ClipboardCheck } from 'lucide-react';
+import Image from 'next/image';
+import { ArrowLeft, CheckCircle2, X, LoaderCircle, AlertCircle, Inbox } from 'lucide-react';
 import type { ReadingStatus } from '@enem/shared';
 
 const NoticeContext = createContext<(message: string, kind?: 'success' | 'error') => void>(() => {});
@@ -20,7 +21,10 @@ export function NoticeProvider({children}: {children: ReactNode}) {
 }
 export const useNotice = () => useContext(NoticeContext);
 export function Brand() {
-  return <Link href="/" className="brand"><span className="brand-mark"><ClipboardCheck size={24}/></span><span>OMR <span className="brand-accent">Enem</span> Reader</span></Link>;
+  return <Link href="/" className="brand" aria-label="SIRENIA — página inicial">
+    <Image className="brand-logo" src="/morea-logo.svg" alt="MOREA" width={56} height={56} unoptimized/>
+    <span className="brand-copy"><span className="brand-name">SIRENIA</span><span className="brand-description">Simulados e Revisões para o Enem corrigidos com Inteligência Artificial</span></span>
+  </Link>;
 }
 export function BackLink({href = '/', children = 'Voltar ao dashboard'}: {href?: string; children?: ReactNode}) {
   return <Link className="back-link" href={href}><ArrowLeft size={16}/>{children}</Link>;
