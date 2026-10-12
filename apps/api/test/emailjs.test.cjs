@@ -33,11 +33,15 @@ test('falhas de provedor não são repetidas automaticamente nem revelam respost
   await assert.rejects(new EmailJsService({get:async()=>({next_at:Date.now()})}).send('a@example.com','Boletim','html'),error=>!/fake-private|sensitive/.test(error.message));assert.equal(calls,1);
 });
 test('limite de código é persistente entre instâncias e não gera novo código no mesmo minuto',async(t)=>{
-  let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;return new Response(JSON.stringify({email_otp:'12345678'}),{status:200});});
+  let calls=0,lookups=0;t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(String(url).includes('/admin/users?')){lookups++;return new Response(JSON.stringify({users:[{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',email:'cooldown@example.com',email_confirmed_at:'2026-10-12T10:00:00Z',app_metadata:{role:'professor'}}]}),{status:200});}
+    assert.match(String(url),/admin\/generate_link$/);assert.deepEqual(JSON.parse(options.body),{type:'magiclink',email:'cooldown@example.com'});
+    calls++;return new Response(JSON.stringify({email_otp:'12345678'}),{status:200});
+  });
   const gateway={configured:()=>true,send:async()=>{}};
-  await new AuthService(db,gateway).signup('cooldown@example.com','Ficticia-123!','ip-ficticio');
-  await assert.rejects(new AuthService(db,gateway).signup('cooldown@example.com','Ficticia-123!','ip-ficticio'),error=>error.getStatus()===429);
-  assert.equal(calls,1);
+  await new AuthService(db,gateway).requestCode('cooldown@example.com','ip-ficticio');
+  await assert.rejects(new AuthService(db,gateway).requestCode('cooldown@example.com','ip-ficticio'),error=>error.getStatus()===429);
+  assert.equal(calls,1);assert.equal(lookups,1);
   const stored=await db.all('SELECT scope_hash FROM auth_attempt_limits');assert.ok(stored.length);assert.ok(stored.every(r=>/^[a-f0-9]{64}$/.test(r.scope_hash)));
 });
 test('reserva do EmailJS é compartilhada pelo banco e espaça envios concorrentes',async()=>{

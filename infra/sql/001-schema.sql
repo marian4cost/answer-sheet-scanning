@@ -131,6 +131,28 @@ END $$;
 CREATE INDEX IF NOT EXISTS omr_simulado_owner ON core_simulado(owner_id,expira_em);
 CREATE INDEX IF NOT EXISTS omr_upload_owner ON uploaded_files(owner_id);
 CREATE TABLE IF NOT EXISTS storage_deletions (path TEXT PRIMARY KEY, criado_em TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS account_admin_locks (scope TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0);
+INSERT INTO account_admin_locks(scope,revision) VALUES('roles',0) ON CONFLICT(scope) DO NOTHING;
+CREATE TABLE IF NOT EXISTS answer_review_events (
+  id TEXT PRIMARY KEY,
+  resultado_id INTEGER NOT NULL REFERENCES core_resultadoaluno(id) ON DELETE CASCADE,
+  versao INTEGER NOT NULL CHECK (versao>0),
+  revisor_id TEXT NOT NULL,
+  revisor_nome TEXT NOT NULL DEFAULT '',
+  criado_em TEXT NOT NULL,
+  motivo TEXT NOT NULL,
+  respostas_antes TEXT NOT NULL CHECK (jsonb_typeof(respostas_antes::jsonb)='object'),
+  respostas_depois TEXT NOT NULL CHECK (jsonb_typeof(respostas_depois::jsonb)='object'),
+  questoes_revisadas TEXT NOT NULL CHECK (jsonb_typeof(questoes_revisadas::jsonb)='array'),
+  alteracoes TEXT NOT NULL CHECK (jsonb_typeof(alteracoes::jsonb)='object'),
+  status_antes TEXT NOT NULL,
+  status_depois TEXT NOT NULL,
+  UNIQUE(resultado_id,versao)
+);
+ALTER TABLE answer_review_events ADD COLUMN IF NOT EXISTS revisor_nome TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS answer_reviews_result ON answer_review_events(resultado_id,versao);
+ALTER TABLE account_admin_locks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE answer_review_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage_deletions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE essay_import_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE report_access_links ENABLE ROW LEVEL SECURITY;
@@ -152,7 +174,7 @@ DECLARE role_name TEXT;
 BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages, storage_deletions FROM %I', role_name);
+      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages, storage_deletions, account_admin_locks, answer_review_events FROM %I', role_name);
     END IF;
   END LOOP;
 END $$;

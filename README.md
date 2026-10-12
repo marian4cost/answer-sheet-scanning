@@ -110,33 +110,42 @@ EmailJS tem precedência. O template exclusivo usa assunto `{{subject}}`, destin
 
 Os testes simulam os provedores, sem enviar emails reais. Importar a planilha não envia mensagens. O relatório institucional com aba **Registros** e cabeçalhos **Matrícula**, **Email Acadêmico**, **Nome** e **Descrição do Curso** é reconhecido diretamente. Abas de filtros são ignoradas; duas abas de contatos ou duas colunas de email reconhecidas são rejeitadas por ambiguidade. Matrículas continuam como texto.
 
-## Login dos professores
+## Login, perfis e administração
 
-O login por email e senha é sempre exigido. `AUTH_REGISTRATION_ENABLED=true` permite cadastro de qualquer email, conforme a escolha do responsável: cada conta com email confirmado acessa somente seus próprios simulados, contatos, resultados, importações e histórico de envios. O identificador proprietário é o UUID retornado pelo Supabase Auth; valores enviados pelo navegador não alteram esse vínculo. Com a flag de cadastro desativada, valem apenas `TEACHER_EMAILS` ou os papéis `teacher`/`admin` em metadados administrativos do Supabase. A antiga variável `AUTH_ENABLED` não permite mais desativar a autenticação, localmente ou na nuvem.
+O login é sempre obrigatório. Cada conta acessa somente seus próprios simulados, contatos, resultados, importações e entregas. O proprietário vem do UUID verificado no Supabase Auth, nunca de valores enviados pelo navegador. A role é obtida de `app_metadata.role`, controlada pelo servidor: `admin` ou `professor` (`teacher` legado é normalizado para professor). O administrador gerencia contas, mas não acessa automaticamente o histórico dos outros professores.
 
-O cadastro pede email, senha de 8 a 128 caracteres e confirmação da senha. O NestJS gera um OTP de cadastro no **Supabase Auth** e envia o código pelo **EmailJS**. A conta só recebe sessão após o Supabase confirmar o código. Senhas são tratadas pelo Supabase Auth; não são armazenadas em tabelas da aplicação, no EmailJS nem no navegador. Os códigos também não aparecem em respostas da API ou logs. A aplicação limita solicitações por email e IP em banco compartilhado entre deployments.
+Não há cadastro público. O administrador abre **Configurações → Adicionar usuário**, informa nome, email, senha inicial de 8 a 128 caracteres e role. A senha é tratada somente pelo Supabase Auth; não fica no banco da aplicação, no EmailJS nem em logs. A nova conta precisa confirmar seu email: na tela de login, escolhe **Entrar com código de e-mail**, recebe o código e o confirma. Depois pode usar email e senha. A criação de uma conta pelo administrador não envia mensagens automaticamente.
 
-As duas contas provisionadas pelo responsável usam login por senha. A interface mantém a alternativa de acesso por código. O SMTP padrão do Supabase é apenas uma alternativa legada para login por código quando EmailJS não está configurado; ele não permite atender usuários externos sem um SMTP próprio.
+O código é gerado somente para contas já provisionadas e com role administrativa válida. O fallback OTP usa `create_user:false`. Mantenha o cadastro público desativado também no Supabase Auth. As variáveis legadas `AUTH_REGISTRATION_ENABLED`, `TEACHER_EMAILS` e `AUTH_ENABLED` não concedem privilégios nem desligam a autenticação.
 
-1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_REGISTRATION_ENABLED=true` e as quatro variáveis EmailJS na API.
-2. Habilite email no Supabase Auth e mantenha a confirmação de email. Para compatibilidade com links legados, cadastre a origem real em Site URL e a rota `/login` nas URLs de redirecionamento.
-3. Na tela `/login`, entre com email e senha ou selecione **Criar conta**, defina a senha e informe o código recebido por email. O fluxo EmailJS usa o Supabase apenas para gerar/verificar o OTP e não depende do SMTP padrão do Supabase.
+Em **Configurações**, cada usuário consulta suas informações e edita o nome de apresentação. Administradores também listam usuários, criam contas e alteram roles. O servidor revalida o papel no provedor e serializa essas alterações; o último administrador confirmado e o rebaixamento da própria conta ficam protegidos.
 
-A sessão usa cookie `HttpOnly`, `SameSite=Lax`, seguro na nuvem, até uma hora. A identidade é validada no Supabase a cada chamada protegida. `user_metadata` editável pelo usuário não concede acesso. Sem sessão válida, contatos, boletins, PDFs e espelhos ficam bloqueados.
+A sessão usa cookie `HttpOnly`, `SameSite=Lax`, seguro, com duração de até uma hora. Identidade, confirmação de email e role são verificadas no Supabase a cada chamada protegida. Metadados editáveis pelo usuário não concedem acesso. Solicitações, códigos e tentativas de login têm limites persistentes no banco.
 
+1. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e as variáveis EmailJS na API.
+2. Mantenha a confirmação de email e desative o cadastro público no Supabase Auth. Cadastre a origem real e a rota `/login` nos redirecionamentos autorizados.
+3. Provisione o administrador inicial com `app_metadata.role=admin`; novas contas são gerenciadas pela aplicação.
 
-Referências oficiais: [templates Supabase](https://supabase.com/docs/guides/auth/auth-email-templates) e [login por email e OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless).
+Referências: [Supabase — metadados administrativos](https://supabase.com/docs/reference/javascript/auth-admin-updateuserbyid) e [login por email e OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless).
+
+### Revisão manual das respostas
+
+No espelho ou em **Boletins → Revisar / redação**, o professor abre **Conferir respostas do cartão**. Leituras incertas (círculos azuis) podem ser filtradas. Ele informa A a E, em branco ou marcação dupla e registra o motivo. A aplicação recalcula notas e temas usando a chave histórica daquele envio, preservando o OCR original e registrando antes/depois, data e revisor.
+
+Revisões concorrentes exigem atualizar o espelho. Uma falha completa de leitura só libera a nota depois de conferir todas as questões, mesmo em etapas. Alterações de conteúdo invalidam prévias e links antigos; o histórico de entregas permanece salvo e nenhum email é reenviado automaticamente.
+
+A página pública **Desenvolvedores**, acessível pelo botão **Conhecer os desenvolvedores**, apresenta Mariana da Costa Lisboa e Genisson Emilio dos Santos, com links para seus portfólios, GitHub e LinkedIn.
 
 ### Histórico por conta e retenção
 
-`DATA_RETENTION_DAYS` define de 1 a 365 dias (padrão: 90). O prazo de cada simulado é fixado no cadastro; resultados, redações e histórico de entregas vencem juntos. A interface mostra a data e recomenda exportar os arquivos. Contatos vencem no mesmo prazo contado da última importação. Novos envios não estendem a retenção de um simulado. Os registros ficam inacessíveis quando vencem; a limpeza diária os exclui do banco e remove os arquivos. As contas de acesso não são excluídas por essa limpeza. Links individuais duram no máximo sete dias e nunca ultrapassam a validade do simulado ou do contato.
+`DATA_RETENTION_DAYS` define de 1 a 365 dias (padrão: 30). O prazo de cada simulado é fixado no cadastro; resultados, redações e histórico de entregas vencem juntos. A interface mostra a data e recomenda exportar os arquivos. Contatos vencem no mesmo prazo contado da última importação. Novos envios não estendem a retenção de um simulado. Os registros ficam inacessíveis quando vencem; a limpeza diária os exclui do banco e remove os arquivos. As contas de acesso não são excluídas por essa limpeza. Links individuais duram no máximo sete dias e nunca ultrapassam a validade do simulado ou do contato.
 
 Bancos anteriores à separação mantêm os registros antigos sem dono e sem exposição a contas novas. A migração é explícita, exige uma conta existente com e-mail confirmado e cria um backup privado antes de modificar o banco:
 
 ```bash
-node scripts/migrate-account-data.mjs --email professor@example.com --days 90
+node scripts/migrate-account-data.mjs --email professor@example.com --days 30
 # Após revisar o proprietário e o prazo:
-node scripts/migrate-account-data.mjs --email professor@example.com --days 90 --apply
+node scripts/migrate-account-data.mjs --email professor@example.com --days 30 --apply
 ```
 
 Ela atribui somente registros ainda sem proprietário e não altera notas, respostas, IDs ou datas originais. O modo de prévia não executa DDL nem altera registros. Os arquivos de backup precisam seguir a política de retenção da instituição e ficam fora do Git. Uploads temporários, prévias e limites de envio também são limpos; não há mais arquivos de alunos servidos diretamente por `/media`.
@@ -179,10 +188,10 @@ SUPABASE_SERVICE_ROLE_KEY    chave de servidor para Storage privado
 SUPABASE_STORAGE_BUCKET=omr-private
 OMR_REMOTE_URL              URL HTTPS do Python terminada em /api/omr
 OMR_REMOTE_SECRET           segredo aleatório longo, igual ao do Python
-AUTH_REGISTRATION_ENABLED=true  cadastro com código por email
+AUTH_REGISTRATION_ENABLED=false  legado; cadastro público sempre bloqueado
 REPORT_LINK_TTL_DAYS=7       prazo do link individual
 CRON_SECRET                 segredo da limpeza diária, mínimo 32 caracteres
-TEACHER_EMAILS              emails autorizados separados por vírgula
+app_metadata.role           admin ou professor; papel protegido no Supabase Auth
 WEB_URL                     origem da interface usada no callback /login
 CORS_ORIGINS                origens HTTPS exatas da interface, separadas por vírgula
 REPORT_INSTITUTION          instituição do boletim

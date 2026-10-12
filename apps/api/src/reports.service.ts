@@ -10,7 +10,7 @@ import { grade } from './grading';
 import { renderReportPdf } from './reports.pdf';
 import { EmailJsService } from './emailjs.service';
 import { ProofImportService } from './proof-import.service';
-import { withAccount } from './account-context';
+import { accountId, withAccount } from './account-context';
 
 const AREA_NAMES = ['Linguagens', 'Ciências da Natureza', 'Matemática', 'Ciências Humanas'];
 const INSTITUTION = () => process.env.REPORT_INSTITUTION || 'Instituto Federal de Sergipe - Campus Lagarto';
@@ -48,6 +48,7 @@ export function reportLinkText(url:string,expiry:string) {
 }
 
 type DeliveryRow = {id: number; resultado_id: number; destinatario: string; status: ReportDelivery['status']; content_hash: string; message_id: string; erro: string};
+type ReservedDelivery = {report: StudentReport; row: DeliveryRow; fresh: boolean; url?: string; expiry?: string; operationHash?: string; planHash?: string};
 export function escapeHtml(value: unknown): string { return String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]!)); }
 function canonicalArea(theme: string): string | undefined {
   const normalized = theme.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -121,6 +122,19 @@ export class ReportsService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService, @Inject(SimuladosService) private readonly simulados: SimuladosService,
     @Inject(ContactsService) private readonly contacts: ContactsService, @Inject(ReportEmailGateway) private readonly email: ReportEmailGateway,
     @Optional() @Inject(ProofImportService) private readonly proofImports?: ProofImportService) {}
+  private async lockResultsForDelivery(simuladoId: number, rawIds: unknown[]) {
+    if (rawIds.some(id => !Number.isSafeInteger(id) || Number(id) <= 0)) throw new BadRequestException('O plano contém provas inválidas. Revise um novo plano.');
+    const ids = [...new Set(rawIds as number[])].sort((a, b) => a - b);
+    if (!ids.length) return;
+    // Share the same row lock as manual answer review. The report must be read and
+    // fingerprinted only after this lock, then ENVIANDO is reserved before commit.
+    // Consistent order avoids deadlocks between batches containing the same proofs.
+    const rows = await this.db.all<{id: number}>(`SELECT r.id FROM core_resultadoaluno r
+      JOIN core_lotecorrecao l ON l.id=r.lote_id JOIN core_simulado s ON s.id=l.simulado_id
+      WHERE s.id=? AND s.owner_id=? AND r.id IN (${ids.map(() => '?').join(',')}) ORDER BY r.id` +
+      (this.db.dialect === 'postgres' ? ' FOR UPDATE OF r' : ''), simuladoId, accountId(), ...ids);
+    if (rows.length !== ids.length) throw new BadRequestException('Uma prova deste plano foi removida ou não pertence ao seu simulado. Revise um novo plano.');
+  }
   async report(id: number): Promise<StudentReport> {
     const {resultado, simulado} = await this.simulados.result(id);
     const contact = await this.contacts.get(resultado.matricula);
@@ -229,12 +243,46 @@ export class ReportsService {
     await this.db.run('INSERT INTO report_access_links(token_hash,delivery_id,operation_hash,criado_em,expira_em) VALUES(?,?,?,?,?)', sha256(token), row.id, operationHash, now.toISOString(), expiry);
     return {url, expiry, operationHash};
   }
-  private async deliverReserved(entries: Array<{report: StudentReport; row: DeliveryRow; fresh: boolean; url?: string; expiry?: string; operationHash?: string}>): Promise<DeliveryResult> {
+  private async refreshReserved(entry: ReservedDelivery): Promise<StudentReport> {
+    return this.db.transaction(async () => {
+      await this.lockResultsForDelivery(entry.report.simulado_id, [entry.row.resultado_id]);
+      const current = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE id=?', entry.row.id);
+      if (!current || current.status !== 'ENVIANDO' || current.resultado_id !== entry.row.resultado_id || current.content_hash !== entry.row.content_hash || current.destinatario !== entry.row.destinatario) throw new BadRequestException('A reserva desta entrega mudou. Revise o histórico antes de preparar um novo envio.');
+      let report: StudentReport;
+      try { report = await this.report(current.resultado_id); }
+      catch { throw new BadRequestException('O boletim não está disponível para envio. Confira a prova, as avaliações e o prazo de armazenamento.'); }
+      if (!report.apto_envio || report.content_hash !== current.content_hash || report.email !== current.destinatario || report.simulado_id !== entry.report.simulado_id || report.matricula !== entry.report.matricula) throw new BadRequestException('O boletim ou o destinatário mudou enquanto aguardava a fila. Revise uma nova prévia antes de enviar.');
+      const access = await this.db.get<AccessRow>('SELECT * FROM report_access_links WHERE delivery_id=? AND operation_hash=?', current.id, entry.operationHash || '');
+      if (!entry.url || !entry.expiry || !access || access.revogado_em || access.ativado_em || !Number.isFinite(Date.parse(access.expira_em)) || Date.parse(access.expira_em) <= Date.now()) throw new BadRequestException('O acesso reservado não está disponível. Revise uma nova prévia antes de enviar.');
+      const renewed = await this.db.run('UPDATE report_deliveries SET tentativa_em=? WHERE id=? AND status=? AND destinatario=? AND content_hash=?', new Date().toISOString(), current.id, 'ENVIANDO', current.destinatario, current.content_hash);
+      if (!renewed.changes) throw new BadRequestException('A reserva desta entrega mudou. Revise o histórico antes de enviar.');
+      return report;
+    });
+  }
+  private async blockReserved(entry: ReservedDelivery, reason: string) {
+    await this.db.transaction(async () => {
+      const blocked = await this.db.run('UPDATE report_deliveries SET status=?,erro=? WHERE id=? AND status=? AND destinatario=? AND content_hash=?', 'BLOQUEADO', reason, entry.row.id, 'ENVIANDO', entry.row.destinatario, entry.row.content_hash);
+      if (blocked.changes) {
+        await this.db.run('UPDATE report_access_links SET revogado_em=? WHERE delivery_id=? AND operation_hash=? AND ativado_em IS NULL AND revogado_em IS NULL', new Date().toISOString(), entry.row.id, entry.operationHash || '');
+        // The failed preview cannot retry itself. Only a newly prepared and
+        // explicitly confirmed plan may reclaim a known pre-provider failure.
+        if (entry.planHash) await this.db.run('DELETE FROM report_delivery_plans WHERE token_hash=? AND simulado_id=?', entry.planHash, entry.report.simulado_id);
+      }
+    });
+  }
+  private async deliverReserved(entries: ReservedDelivery[]): Promise<DeliveryResult> {
     const results: ReportDelivery[] = []; let sent = 0, ignored = 0;
-    for (const {report, row, fresh, url, expiry, operationHash} of entries) {
+    for (const entry of entries) {
+      const {row, fresh, url, expiry, operationHash} = entry;
+      let report = entry.report;
       if (!fresh) { ignored++; results.push({resultado_id: row.resultado_id, matricula: report.matricula, email: row.destinatario, status: row.status, message_id: row.message_id, erro: row.erro}); continue; }
-      let messageId = '';
+      let messageId = '', providerAttempted = false;
       try {
+        // Long batches may outlive the original lease. Re-read the report under
+        // its row lock and renew only this exact reservation immediately before
+        // calling the gateway; later cards cannot reuse an outdated fingerprint.
+        report = await this.refreshReserved(entry);
+        providerAttempted = true;
         messageId = await this.email.deliver(report, url!, `boletim-acesso-${operationHash}`, expiry!);
         if (!messageId) throw new Error('Entrega não confirmada.');
         await this.db.transaction(async () => {
@@ -242,7 +290,14 @@ export class ReportsService {
           await this.db.run('UPDATE report_access_links SET ativado_em=? WHERE operation_hash=? AND revogado_em IS NULL', new Date().toISOString(), operationHash!);
         });
         sent++; results.push({resultado_id: report.resultado_id, matricula: report.matricula, email: report.email!, status: 'ENVIADO', message_id: messageId, erro: ''});
-      } catch {
+      } catch (failure) {
+        if (!providerAttempted) {
+          const detail = failure instanceof BadRequestException ? failure.message : 'Não foi possível validar a reserva. Revise o histórico e prepare uma nova prévia.';
+          const error = 'Envio bloqueado antes de chamar o provedor: ' + detail;
+          try { await this.blockReserved(entry, error); } catch { /* No provider call occurred; preserve the durable reservation if storage is unavailable. */ }
+          results.push({resultado_id: row.resultado_id, matricula: entry.report.matricula, email: row.destinatario, status: 'BLOQUEADO', message_id: '', erro: error});
+          continue;
+        }
         const error = messageId ? 'O provedor confirmou a mensagem, mas o registro local falhou. Não reenvie automaticamente; confira o provedor.' : 'Não foi possível confirmar a entrega. Confira o provedor de email antes de tentar um novo envio; uma mensagem pode ter sido aceita.';
         try { await this.db.run('UPDATE report_deliveries SET status=?,message_id=?,erro=? WHERE id=?', 'AMBIGUO', messageId, error, row.id); } catch { /* ENVIANDO remains a durable lock if the database is unavailable. */ }
         results.push({resultado_id: report.resultado_id, matricula: report.matricula, email: report.email!, status: 'AMBIGUO', message_id: messageId, erro: error});
@@ -262,16 +317,25 @@ export class ReportsService {
       if (!saved || saved.simulado_id !== simuladoId || (!Number.isFinite(Date.parse(saved.expira_em)) || Date.parse(saved.expira_em) <= Date.now())) throw new BadRequestException('O plano de envio expirou ou é inválido. Revise um novo plano.');
       const rows = JSON.parse(saved.payload) as PlanRecord[];
       if (!Array.isArray(rows)) throw new BadRequestException('Este plano não é um plano de envio de boletins.');
+      await this.lockResultsForDelivery(simuladoId, rows.map(row => row.resultado_id));
       const reports = await Promise.all(rows.map(row => this.report(row.resultado_id)));
       if (reports.some((report, i) => report.simulado_id !== simuladoId || !report.apto_envio || report.content_hash !== rows[i].content_hash || report.email !== rows[i].email || report.matricula !== rows[i].matricula)) throw new BadRequestException('O boletim, a redação ou o contato mudou após a prévia. Revise um novo plano antes de enviar.');
-      const entries: Array<{report: StudentReport; row: DeliveryRow; fresh: boolean; url?: string; expiry?: string; operationHash?: string}> = [];
+      const entries: ReservedDelivery[] = [];
       for (const report of reports) {
         const result = await this.db.run(`INSERT INTO report_deliveries(resultado_id,destinatario,status,content_hash,message_id,erro,criado_em) VALUES(?,?,?,?,?,?,?)
           ON CONFLICT(resultado_id,destinatario,content_hash) DO NOTHING`, report.resultado_id, report.email!, 'ENVIANDO', report.content_hash, '', '', new Date().toISOString());
-        const row = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE resultado_id=? AND destinatario=? AND content_hash=?', report.resultado_id, report.email!, report.content_hash);
+        let row = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE resultado_id=? AND destinatario=? AND content_hash=?', report.resultado_id, report.email!, report.content_hash);
         if (!row) throw new Error('Falha ao registrar a entrega.');
-        const fresh = result.changes > 0;
-        entries.push({report, row, fresh, ...(fresh ? await this.createAccess(row, sha256('primeiro-envio:' + row.id)) : {})});
+        let fresh = result.changes > 0;
+        if (!fresh && row.status === 'BLOQUEADO' && !row.message_id) {
+          const reclaimed = await this.db.run(`UPDATE report_deliveries SET status=?,erro=?,tentativa_em=?
+            WHERE id=? AND status=? AND destinatario=? AND content_hash=? AND COALESCE(message_id,'')=''`,
+            'ENVIANDO', '', new Date().toISOString(), row.id, 'BLOQUEADO', report.email!, report.content_hash);
+          fresh = reclaimed.changes === 1;
+          if (fresh) row = {...row, status:'ENVIANDO', erro:''};
+        }
+        const planHash = sha256(token);
+        entries.push({report, row, fresh, planHash, ...(fresh ? await this.createAccess(row, sha256('envio:' + planHash + ':' + row.id)) : {})});
       }
       return entries;
     });
@@ -306,6 +370,7 @@ export class ReportsService {
       const operationHash = sha256('reemissao:' + sha256(token));
       const row = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE id=?', plan.delivery_id);
       if (!row) throw new BadRequestException('A entrega foi removida.');
+      await this.lockResultsForDelivery(simuladoId, [row.resultado_id]);
       const report = await this.report(row.resultado_id);
       const already = await this.db.get<AccessRow>('SELECT * FROM report_access_links WHERE operation_hash=?', operationHash);
       if (already) return [{report,row,fresh:false}];
@@ -317,7 +382,7 @@ export class ReportsService {
       if (!claimed.changes) throw new BadRequestException('Esta entrega já está sendo atualizada. Revise a situação antes de reemitir.');
       await this.db.run('UPDATE report_access_links SET revogado_em=? WHERE delivery_id=? AND revogado_em IS NULL', new Date().toISOString(), row.id);
       const updated = {...row,status:'ENVIANDO' as const,destinatario:report.email!,content_hash:report.content_hash,message_id:'',erro:''};
-      return [{report,row:updated,fresh:true,...await this.createAccess(updated,operationHash)}];
+      return [{report,row:updated,fresh:true,planHash:sha256(token),...await this.createAccess(updated,operationHash)}];
     });
     return this.deliverReserved(reserved);
   }
@@ -351,6 +416,7 @@ export class ReportsService {
     if (!secret || secret.length < 32) throw new ServiceUnavailableException('A limpeza dos acessos ainda não foi configurada.');
     const expected = Buffer.from('Bearer ' + secret), provided = Buffer.from(typeof rawAuthorization === 'string' ? rawAuthorization : '');
     if (expected.length !== provided.length || !timingSafeEqual(expected,provided)) throw new UnauthorizedException('Acesso não autorizado.');
+    const storageDeadline = Date.now() + 240_000;
     const now = new Date().toISOString();
     const deleted = await this.db.run('DELETE FROM report_access_links WHERE expira_em<=? OR revogado_em IS NOT NULL', now);
     await this.db.run('DELETE FROM essay_import_plans WHERE expira_em<=?', now);
@@ -371,7 +437,7 @@ export class ReportsService {
     });
     await this.db.run('DELETE FROM auth_attempt_limits WHERE window_at<=?',Date.now()-86400_000);
     await this.db.run('DELETE FROM email_provider_slots WHERE next_at<=?',Date.now()-86400_000);
-    const arquivosRemovidos = await this.simulados.cleanStorage();
+    const arquivosRemovidos = await this.simulados.cleanStorage(storageDeadline);
     return {removidos:deleted.changes,...expired,simulados_removidos:simuladosRemovidos,contatos_removidos:contatos.changes,recibos_removidos:uploads.length,arquivos_removidos:arquivosRemovidos};
   }
   async deliveries(simuladoId: number) {

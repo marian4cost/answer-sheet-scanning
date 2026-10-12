@@ -197,7 +197,20 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
     if (!columns('report_deliveries').some(column => column.name === 'tentativa_em')) this.sqlite!.exec('ALTER TABLE report_deliveries ADD COLUMN tentativa_em TEXT');
     this.sqlite!.exec(`CREATE INDEX IF NOT EXISTS omr_simulado_owner ON core_simulado(owner_id,expira_em);
       CREATE INDEX IF NOT EXISTS omr_upload_owner ON uploaded_files(owner_id);
-      CREATE TABLE IF NOT EXISTS storage_deletions (path TEXT PRIMARY KEY, criado_em TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS storage_deletions (path TEXT PRIMARY KEY, criado_em TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS account_admin_locks (scope TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO account_admin_locks(scope,revision) VALUES('roles',0) ON CONFLICT(scope) DO NOTHING;
+      CREATE TABLE IF NOT EXISTS answer_review_events (
+        id TEXT PRIMARY KEY, resultado_id INTEGER NOT NULL REFERENCES core_resultadoaluno(id) ON DELETE CASCADE,
+        versao INTEGER NOT NULL CHECK(versao>0), revisor_id TEXT NOT NULL, revisor_nome TEXT NOT NULL DEFAULT '', criado_em TEXT NOT NULL, motivo TEXT NOT NULL,
+        respostas_antes TEXT NOT NULL CHECK(json_valid(respostas_antes)),
+        respostas_depois TEXT NOT NULL CHECK(json_valid(respostas_depois)),
+        questoes_revisadas TEXT NOT NULL CHECK(json_valid(questoes_revisadas)),
+        alteracoes TEXT NOT NULL CHECK(json_valid(alteracoes)),
+        status_antes TEXT NOT NULL, status_depois TEXT NOT NULL, UNIQUE(resultado_id,versao)
+      );
+      CREATE INDEX IF NOT EXISTS answer_reviews_result ON answer_review_events(resultado_id,versao);`);
+    if (!columns('answer_review_events').some(column => column.name === 'revisor_nome')) this.sqlite!.exec("ALTER TABLE answer_review_events ADD COLUMN revisor_nome TEXT NOT NULL DEFAULT ''");
     for (const [name, initial] of [['competencias_redacao', '[]'], ['avaliador_redacao', ''], ['situacao_redacao', ''], ['origem_redacao', 'manual']]) {
       if (!columns('report_feedback').some(column => column.name === name)) this.sqlite!.exec(`ALTER TABLE report_feedback ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${initial}'`);
     }

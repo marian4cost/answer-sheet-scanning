@@ -1,23 +1,30 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { rename, rm, readFile } from 'node:fs/promises';
-import type { AnswerKey, DashboardData, Simulado, SimuladoDetail, Envio, Resultado, ResultsData, UploadResult, OMRReading } from '@enem/shared';
+import type { AnswerKey, AnswerReviewEvent, ReadingStatus, DashboardData, Simulado, SimuladoDetail, Envio, Resultado, ResultsData, UploadResult, OMRReading } from '@enem/shared';
 import { DatabaseService } from './database.service';
 import { OmrService } from './omr.service';
 import { MEDIA_ROOT, STORAGE_MODE } from './config';
 import { StorageService } from './storage.service';
 import { grade, gradeThemes, indicators, invalidQuestions } from './grading';
 import { questionCount, themeRanges } from './question-config';
-import { accountId, dataExpiry, retentionDays, withAccount } from './account-context';
+import { accountId, currentAccount, dataExpiry, retentionDays, withAccount } from './account-context';
 
 type SimuladoRow = Omit<Simulado, 'gabarito_oficial' | 'gabarito_valido' | 'temas'> & {gabarito_oficial: string; temas: string; owner_id: string};
 type ResultRow = Omit<Resultado, 'respostas_detectadas' | 'gabarito_do_envio' | 'desempenho_temas'> & {respostas_detectadas: string; gabarito_snapshot: string};
+type ReviewRow = Omit<AnswerReviewEvent, 'respostas_antes' | 'respostas_depois' | 'alteracoes' | 'questoes_revisadas'> & {
+  resultado_id: number; respostas_antes: string; respostas_depois: string; alteracoes: string; questoes_revisadas: string;
+};
+type ReviewedResultRow = ResultRow & {revisao_versao?: number | null; revisao_respostas?: string | null; revisao_status?: ReadingStatus | null; revisao_questoes?: string | null};
 const SIMULADO_SQL = `SELECT s.*, (SELECT CAST(COUNT(*) AS INTEGER) FROM core_lotecorrecao l JOIN core_resultadoaluno r ON r.lote_id=l.id WHERE l.simulado_id=s.id) total_provas,
   (SELECT CAST(COUNT(*) AS INTEGER) FROM core_lotecorrecao l WHERE l.simulado_id=s.id) total_envios FROM core_simulado s`;
 const ENVIO_SQL = `SELECT l.id, l.simulado_id, l.criado_em, s.titulo, CAST(COUNT(r.id) AS INTEGER) total_provas
   FROM core_lotecorrecao l JOIN core_simulado s ON s.id=l.simulado_id LEFT JOIN core_resultadoaluno r ON r.lote_id=l.id`;
-const RESULT_SQL = `SELECT r.*, l.criado_em, l.gabarito_snapshot FROM core_resultadoaluno r JOIN core_lotecorrecao l ON l.id=r.lote_id`;
+const RESULT_SQL = `SELECT r.*, l.criado_em, l.gabarito_snapshot, v.versao AS revisao_versao,
+  v.respostas_depois AS revisao_respostas, v.status_depois AS revisao_status, v.questoes_revisadas AS revisao_questoes
+  FROM core_resultadoaluno r JOIN core_lotecorrecao l ON l.id=r.lote_id
+  LEFT JOIN answer_review_events v ON v.resultado_id=r.id AND v.versao=(SELECT MAX(e.versao) FROM answer_review_events e WHERE e.resultado_id=r.id)`;
 function dateISO(value: string) {
   return new Date(value.includes('T') ? value : value.replace(' ', 'T') + 'Z').toISOString();
 }
@@ -28,12 +35,26 @@ function simuladoDTO(row: SimuladoRow): Simulado {
     gabarito_valido: Object.keys(key).length === row.total_questoes && invalidQuestions(key, row.total_questoes).length === 0};
 }
 function envioDTO(row: Envio): Envio { return {...row, criado_em: dateISO(row.criado_em)}; }
-function resultDTO(row: ResultRow, simulado: Simulado): Resultado {
-  const {gabarito_snapshot, ...rest} = row;
-  const answers: AnswerKey = JSON.parse(row.respostas_detectadas), key: AnswerKey = JSON.parse(gabarito_snapshot);
-  return {...rest, respostas_detectadas: answers,
+function reviewDTO(row: ReviewRow): AnswerReviewEvent {
+  const {resultado_id: _id, ...rest} = row;
+  return {...rest, criado_em: dateISO(row.criado_em), respostas_antes: JSON.parse(row.respostas_antes),
+    respostas_depois: JSON.parse(row.respostas_depois), alteracoes: JSON.parse(row.alteracoes), questoes_revisadas: JSON.parse(row.questoes_revisadas)};
+}
+function resultDTO(row: ReviewedResultRow, simulado: Simulado): Resultado {
+  const {gabarito_snapshot, revisao_versao, revisao_respostas, revisao_status, revisao_questoes, ...rest} = row;
+  const original: AnswerKey = JSON.parse(row.respostas_detectadas), key: AnswerKey = JSON.parse(gabarito_snapshot);
+  const answers: AnswerKey = revisao_respostas ? JSON.parse(revisao_respostas) : original;
+  const status = revisao_status || row.status;
+  const reviewed: number[] = revisao_questoes ? JSON.parse(revisao_questoes) : [];
+  const message = !revisao_versao ? row.mensagem_leitura : status === 'ERRO_LEITURA'
+    ? `Revisão manual parcial: ${reviewed.length}/${simulado.total_questoes} questões conferidas. Confira todas para concluir a prova com falha de leitura.`
+    : status === 'ALERTA_REVISAO' ? 'Há respostas incertas ainda não conferidas. A nota permanece provisória.'
+    : `Leitura conferida pelo professor (revisão ${revisao_versao}). A imagem mostra a leitura original.`;
+  return {...rest, ...(revisao_versao ? grade(answers, key, status, simulado.total_questoes) : {}), status, mensagem_leitura: message,
+    respostas_detectadas: answers, respostas_originais: original, status_original: row.status,
+    mensagem_leitura_original: row.mensagem_leitura, revisao_versao: revisao_versao || 0, questoes_revisadas: reviewed,
     gabarito_do_envio: key, criado_em: dateISO(row.criado_em),
-    desempenho_temas: gradeThemes(answers, key, row.status, simulado.total_questoes, simulado.temas),
+    desempenho_temas: gradeThemes(answers, key, status, simulado.total_questoes, simulado.temas),
     imagem_debug: row.imagem_debug ? `/api/resultados/${row.id}/imagem` : null};
 }
 
@@ -162,7 +183,53 @@ export class SimuladosService {
     if (!row) throw new NotFoundException('Resultado não encontrado.');
     const simuladoId = (await this.db.get<{simulado_id: number}>('SELECT simulado_id FROM core_lotecorrecao WHERE id=?', row.lote_id))!.simulado_id;
     const simulado = await this.get(simuladoId);
-    return {resultado: resultDTO(row, simulado), simulado};
+    const revisoes = (await this.db.all<ReviewRow>('SELECT * FROM answer_review_events WHERE resultado_id=? ORDER BY versao DESC', id)).map(reviewDTO);
+    return {resultado: {...resultDTO(row, simulado), revisoes}, simulado};
+  }
+  async reviewAnswers(id: number, input: unknown): Promise<{resultado: Resultado; simulado: Simulado}> {
+    const reviewer = accountId();
+    const reviewerName = currentAccount().nome || currentAccount().email;
+    // Authorize before validating details so an unrelated account cannot probe this proof.
+    const authorized = await this.result(id);
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Informe as questões conferidas e o motivo da revisão.');
+    const body = input as Record<string, unknown>;
+    if (Object.keys(body).some(name => !['versao_esperada', 'respostas', 'motivo'].includes(name))) throw new BadRequestException('A revisão aceita somente respostas, motivo e versão esperada.');
+    if (!Number.isSafeInteger(body.versao_esperada) || Number(body.versao_esperada) < 0) throw new BadRequestException('Atualize o espelho antes de revisar as respostas.');
+    if (typeof body.motivo !== 'string' || body.motivo.trim().length < 3 || body.motivo.trim().length > 1000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(body.motivo)) throw new BadRequestException('Informe um motivo de 3 a 1.000 caracteres para registrar a revisão.');
+    const reason = body.motivo.trim();
+    const changes = body.respostas;
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes) || !Object.keys(changes).length) throw new BadRequestException('Selecione ao menos uma questão para conferir.');
+    const count = authorized.simulado.total_questoes;
+    for (const [question, answer] of Object.entries(changes)) {
+      if (!/^[1-9]\d*$/.test(question) || Number(question) > count || !['A', 'B', 'C', 'D', 'E', 'BNK', 'RAS'].includes(String(answer)) || typeof answer !== 'string') throw new BadRequestException('Informe A, B, C, D, E, em branco ou marcação dupla para questões válidas deste simulado.');
+    }
+    const patch = changes as AnswerKey;
+    try {
+      await this.db.transaction(async () => {
+        if (this.db.dialect === 'postgres') await this.db.get('SELECT id FROM core_resultadoaluno WHERE id=? FOR UPDATE', id);
+        const {resultado, simulado} = await this.result(id);
+        if ((resultado.revisao_versao || 0) !== body.versao_esperada) throw new ConflictException('Outra revisão foi salva após abrir esta prova. Atualize o espelho e confira novamente suas alterações.');
+        const active = await this.db.get<{total: number}>(`SELECT COUNT(*) total FROM report_deliveries WHERE resultado_id=?
+          AND status='ENVIANDO' AND COALESCE(tentativa_em,criado_em)>?`, id, new Date(Date.now() - 120_000).toISOString());
+        if (Number(active?.total)) throw new ConflictException('O boletim está sendo enviado. Aguarde o envio terminar antes de revisar as respostas.');
+        if (invalidQuestions(resultado.gabarito_do_envio, count).length) throw new BadRequestException('O gabarito deste envio está incompleto. A revisão manual não pode inventar a chave de correção.');
+        const answers = {...resultado.respostas_detectadas, ...patch};
+        const reviewed = [...new Set([...(resultado.questoes_revisadas || []), ...Object.keys(patch).map(Number)])].sort((a, b) => a - b);
+        const complete = Array.from({length: count}, (_, i) => answers[String(i + 1)]).every(answer => ['A', 'B', 'C', 'D', 'E', 'BNK', 'RAS', 'INC'].includes(answer));
+        // A failed OCR must receive a deliberate decision for every question, even if it returned plausible answers.
+        const status: ReadingStatus = !complete || (resultado.status_original === 'ERRO_LEITURA' && reviewed.length !== count) ? 'ERRO_LEITURA'
+          : Object.values(answers).includes('INC') ? 'ALERTA_REVISAO' : Object.values(answers).includes('RAS') ? 'ALERTA_RASURA' : 'SUCESSO';
+        await this.db.run(`INSERT INTO answer_review_events(id,resultado_id,versao,revisor_id,revisor_nome,criado_em,motivo,
+          respostas_antes,respostas_depois,questoes_revisadas,alteracoes,status_antes,status_depois) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          randomUUID(), id, (resultado.revisao_versao || 0) + 1, reviewer, reviewerName, new Date().toISOString(), reason,
+          JSON.stringify(resultado.respostas_detectadas), JSON.stringify(answers), JSON.stringify(reviewed), JSON.stringify(patch), resultado.status, status);
+      });
+    } catch (error) {
+      const code = (error as {code?: string}).code;
+      if (code === '23505' || code === 'SQLITE_CONSTRAINT_UNIQUE') throw new ConflictException('Outra revisão foi salva. Atualize o espelho antes de tentar novamente.');
+      throw error;
+    }
+    return this.result(id);
   }
   async upload(id: number, files: Express.Multer.File[], rawMatriculas?: unknown, loadFile?: (index: number) => Promise<Express.Multer.File>): Promise<UploadResult> {
     if (!files.length) throw new BadRequestException('Selecione pelo menos uma prova.');
@@ -228,13 +295,13 @@ export class SimuladosService {
       if (!committed && STORAGE_MODE === 'supabase') await Promise.all(staged.flatMap(e => [this.storage.remove(e.input), this.storage.remove(e.debug)]).map(task => task.catch(() => undefined)));
     }
   }
-  async delete(id: number, confirmation: unknown, expiredOnly = false) {
+  async delete(id: number, confirmation: unknown, expiredOnly = false, deferStorage = false) {
     if (confirmation !== 'sim') throw new BadRequestException('Confirme a exclusão do simulado.');
     const owner = accountId();
     const simulado = expiredOnly ? await this.db.get<SimuladoRow>(SIMULADO_SQL + ' WHERE s.id=? AND s.owner_id=? AND s.expira_em<=?', id, owner, new Date().toISOString()) : await this.get(id);
     if (!simulado) throw new NotFoundException('Simulado não encontrado.');
     await this.db.transaction(async () => {
-      const current = await this.db.get<{id:number}>('SELECT id FROM core_simulado WHERE id=? AND owner_id=?' + (expiredOnly ? ' AND expira_em<=?' : ''), id, owner, ...(expiredOnly ? [new Date().toISOString()] : []));
+      const current = await this.db.get<{id:number}>('SELECT id FROM core_simulado WHERE id=? AND owner_id=?' + (expiredOnly ? ' AND expira_em<=?' : '') + (this.db.dialect === 'postgres' ? ' FOR UPDATE' : ''), id, owner, ...(expiredOnly ? [new Date().toISOString()] : []));
       if (!current) throw new NotFoundException('Simulado não encontrado.');
       // Aguarda operações com envio externo ou leitura em andamento antes da limpeza.
       const busy = await this.db.get<{total:number}>(`SELECT COUNT(*) total FROM proof_import_pages p JOIN proof_import_plans i ON i.id=p.plan_id
@@ -261,24 +328,47 @@ export class SimuladosService {
       await this.db.run('DELETE FROM core_lotecorrecao WHERE simulado_id=?', id);
       await this.db.run('DELETE FROM core_simulado WHERE id=? AND owner_id=?', id, owner);
     });
-    await this.cleanStorage();
+    if (!deferStorage) await this.cleanStorage();
     return {message: `Simulado '${simulado.titulo}' e seus resultados foram excluídos.`};
   }
-  async cleanStorage() {
-    const files = await this.db.all<{path:string}>('SELECT path FROM storage_deletions ORDER BY criado_em LIMIT 100');
-    let removed = 0;
-    for (const file of files) try {
-      await this.storage.remove(file.path);
-      await this.db.run('DELETE FROM storage_deletions WHERE path=?', file.path); removed++;
-    } catch { /* O registro mantém a remoção pendente para a próxima limpeza. */ }
+  async cleanStorage(deadline = Date.now() + 60_000) {
+    const cutoff = new Date().toISOString();
+    let removed = 0, afterDate = '', afterPath = '';
+    while (Date.now() < deadline) {
+      const files = await this.db.all<{path:string;criado_em:string}>(`SELECT path,criado_em FROM storage_deletions
+        WHERE criado_em<=? AND (criado_em>? OR (criado_em=? AND path>?)) ORDER BY criado_em,path LIMIT 100`, cutoff, afterDate, afterDate, afterPath);
+      if (!files.length) break;
+      for (let index = 0; index < files.length; index += 5) {
+        if (Date.now() >= deadline) return removed;
+        await Promise.all(files.slice(index, index + 5).map(async file => {
+          try {
+            await this.storage.remove(file.path);
+            const deleted = await this.db.run('DELETE FROM storage_deletions WHERE path=? AND criado_em=?', file.path, file.criado_em);
+            removed += deleted.changes;
+          } catch { /* Failed keys stay durable; the cursor still lets later files progress. */ }
+        }));
+      }
+      afterDate = files.at(-1)!.criado_em; afterPath = files.at(-1)!.path;
+    }
     return removed;
   }
   async cleanupExpired() {
-    const expired = await this.db.all<{id:number;owner_id:string}>('SELECT id,owner_id FROM core_simulado WHERE owner_id<>? AND expira_em<=? ORDER BY expira_em LIMIT 20', '', new Date().toISOString());
-    let removed = 0;
-    for (const row of expired) try {
-      await withAccount({id:row.owner_id,email:''}, () => this.delete(row.id,'sim',true)); removed++;
-    } catch { /* Concorrência ou erro transitório: tenta novamente no próximo cron. */ }
+    const cutoff = new Date().toISOString();
+    let removed = 0, afterExpiry = '', afterId = 0;
+    for (;;) {
+      const expired = await this.db.all<{id:number;owner_id:string;expira_em:string}>(`SELECT id,owner_id,expira_em FROM core_simulado
+        WHERE owner_id<>? AND expira_em<=? AND (expira_em>? OR (expira_em=? AND id>?))
+        ORDER BY expira_em,id LIMIT 20`, '', cutoff, afterExpiry, afterExpiry, afterId);
+      if (!expired.length) break;
+      for (const row of expired) {
+        afterExpiry = row.expira_em; afterId = row.id;
+        try {
+          // Drain academic records first. Storage removal is already queued in
+          // the same transaction and is handled by the cron after this pass.
+          await withAccount({id:row.owner_id,email:''}, () => this.delete(row.id,'sim',true,true)); removed++;
+        } catch { /* Busy/transient records are retried on the next pass, without starving later IDs. */ }
+      }
+    }
     return removed;
   }
 }

@@ -15,8 +15,8 @@ const {ContactsService} = require('../dist/contacts.service');
 const {SimuladosService} = require('../dist/simulados.service');
 const {withAccount,accountId} = require('../dist/account-context');
 const accounts = {
-  a:{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',email:'a@example.test'},
-  b:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',email:'b@example.test'},
+  a:{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',email:'a@example.test',role:'admin',nome:'Administrador fictício'},
+  b:{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',email:'b@example.test',role:'professor',nome:'Professora fictícia'},
 };
 const key = Object.fromEntries(Array.from({length:50},(_,i)=>[String(i+1),'ABCDE'[i%5]]));
 let dir,app,db,base,simA,simB,resultA,batchA,planA,contactsToken,uploadA,deliveryA,accessUrl;
@@ -83,12 +83,13 @@ test('cada painel mostra somente seus simulados e seu histórico; owner_id envia
   assert.equal((await request(null,'/simulados')).status,401);
   for(const who of ['a','b']) assert.deepEqual((await request(who,'/auth/me')).data,accounts[who]);
   assert.equal((await request(null,'/auth/me')).status,401);
+  assert.equal((await request('a',`/simulados/${simB}`)).status,404,'Administração de contas não concede acesso ao histórico de outro professor.');
 });
 test('todas as leituras de simulado, lote, resultado, imagem, redação, PDF, planilha e entrega bloqueiam outra conta',async()=>{
   for(const url of [`/simulados/${simA}`,`/simulados/${simA}/resultados`,`/simulados/${simA}/exportar`,`/simulados/${simA}/boletins`,`/simulados/${simA}/boletins/entregas`,`/simulados/${simA}/provas/importacoes`,`/envios/${batchA}`,`/envios/${batchA}/exportar`,`/resultados/${resultA}`,`/resultados/${resultA}/imagem`,`/resultados/${resultA}/boletim`,`/resultados/${resultA}/boletim/pdf`]) assert.equal((await request('b',url)).status,404,url);
 });
 test('alterar chave, temas, redação ou excluir simulado de outra conta é bloqueado sem mudar dados',async()=>{
-  for(const [url,method,body] of [[`/simulados/${simA}/gabarito`,'PUT',{gabarito_manual:key}],[`/simulados/${simA}/temas`,'PUT',{temas:[]}],[`/resultados/${resultA}/redacao`,'PUT',{nota_redacao:0}],[`/simulados/${simA}`,'DELETE',{confirmar:'sim'}]]) assert.equal((await request('b',url,method,body)).status,404,url);
+  for(const [url,method,body] of [[`/simulados/${simA}/gabarito`,'PUT',{gabarito_manual:key}],[`/simulados/${simA}/temas`,'PUT',{temas:[]}],[`/resultados/${resultA}/redacao`,'PUT',{nota_redacao:0}],[`/resultados/${resultA}/revisao`,'PUT',{versao_esperada:0,respostas:{'1':'B'},motivo:'Tentativa de alterar a prova de outro usuário.'}],[`/simulados/${simA}`,'DELETE',{confirmar:'sim'}]]) assert.equal((await request('b',url,method,body)).status,404,url);
   assert.equal((await request('a',`/resultados/${resultA}/boletim`)).data.redacao.nota_redacao,800);
 });
 test('contatos com a mesma matrícula pertencem a contas distintas e prévia não pode ser confirmada por outra conta',async()=>{

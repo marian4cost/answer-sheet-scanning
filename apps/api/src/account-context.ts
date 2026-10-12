@@ -1,7 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
 
-export interface AccountIdentity { id: string; email: string }
+export type AccountRole = 'admin' | 'professor';
+export interface AccountIdentity {
+  id: string; email: string; role?: AccountRole; nome?: string;
+  email_confirmado?: boolean; criado_em?: string | null; ultimo_acesso?: string | null;
+}
 const context = new AsyncLocalStorage<AccountIdentity>();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,7 +23,7 @@ export function currentAccount(): AccountIdentity {
   return account;
 }
 export function retentionDays(): number {
-  const days = Number(process.env.DATA_RETENTION_DAYS || '90');
+  const days = Number(process.env.DATA_RETENTION_DAYS || '30');
   if (!Number.isInteger(days) || days < 1 || days > 365) throw new ServiceUnavailableException('Configure um prazo de armazenamento entre 1 e 365 dias.');
   return days;
 }

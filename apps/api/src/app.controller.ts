@@ -62,6 +62,7 @@ export class AppController {
   @Get('simulados/:id/resultados') results(@Param('id', ParseIntPipe) id: number) { return this.simulados.results(id); }
   @Get('envios/:id') batch(@Param('id', ParseIntPipe) id: number) { return this.simulados.batch(id); }
   @Get('resultados/:id') result(@Param('id', ParseIntPipe) id: number) { return this.simulados.result(id); }
+  @Put('resultados/:id/revisao') reviewAnswers(@Param('id', ParseIntPipe) id: number, @Body() body: unknown) { return this.simulados.reviewAnswers(id, body); }
   @Delete('simulados/:id') delete(@Param('id', ParseIntPipe) id: number, @Body('confirmar') confirmation: unknown) { return this.simulados.delete(id, confirmation); }
   @Get('simulados/:id/exportar') async exportSimulado(@Param('id', ParseIntPipe) id: number, @Res() response: Response) {
     const data = await this.simulados.results(id);

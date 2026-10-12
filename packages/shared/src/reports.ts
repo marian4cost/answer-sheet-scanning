@@ -34,6 +34,6 @@ export interface DeliveryPlan {
 }
 export interface ReportDelivery {
   resultado_id: number; matricula: string; email: string;
-  status: 'ENVIADO' | 'ENVIANDO' | 'AMBIGUO'; message_id: string; erro: string;
+  status: 'ENVIADO' | 'ENVIANDO' | 'AMBIGUO' | 'BLOQUEADO'; message_id: string; erro: string;
 }
 export interface DeliveryResult { total_enviados: number; total_ignorados: number; resultados: ReportDelivery[] }

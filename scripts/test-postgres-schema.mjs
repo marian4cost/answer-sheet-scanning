@@ -21,8 +21,8 @@ try {
   assert.equal((await db.query('SELECT curso FROM student_contacts WHERE matricula=$1', ['0000001'])).rows[0].curso, 'Edificações');
   await db.query('DELETE FROM student_contacts WHERE matricula=$1', ['0000001']);
   console.log('PASS: migração legada de curso preserva contato e é idempotente.');
-  const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files','email_provider_slots','auth_attempt_limits','essay_import_plans','report_access_links','proof_import_plans','proof_import_pages','storage_deletions')");
-  assert.equal(tables.rows.length, 16);
+  const tables = await db.query("SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename IN ('core_simulado','core_lotecorrecao','core_resultadoaluno','student_contacts','report_feedback','report_deliveries','report_delivery_plans','contacts_import_plans','uploaded_files','email_provider_slots','auth_attempt_limits','essay_import_plans','report_access_links','proof_import_plans','proof_import_pages','storage_deletions','account_admin_locks','answer_review_events')");
+  assert.equal(tables.rows.length, 18);
   assert.ok(tables.rows.every(row => row.rowsecurity));
   console.log('PASS: schema PostgreSQL e RLS em todas as tabelas.');
   const now=Date.now();
@@ -52,11 +52,17 @@ try {
   console.log('PASS: sequência após migração não colide com IDs preservados.');
 
   await db.query('INSERT INTO report_feedback(resultado_id,nota_redacao,feedback_redacao,atualizado_em) VALUES($1,$2,$3,$4)', [103, 880, 'Fixture.', 'today']);
+  const review=['review-test',103,1,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','today','Conferência fictícia',key,key,'[1]','{"1":"A"}','ALERTA_REVISAO','SUCESSO'];
+  await db.query('INSERT INTO answer_review_events(id,resultado_id,versao,revisor_id,criado_em,motivo,respostas_antes,respostas_depois,questoes_revisadas,alteracoes,status_antes,status_depois) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',review);
+  await assert.rejects(db.query('INSERT INTO answer_review_events(id,resultado_id,versao,revisor_id,criado_em,motivo,respostas_antes,respostas_depois,questoes_revisadas,alteracoes,status_antes,status_depois) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',['duplicate-review',...review.slice(1)]),/unique|duplicate/i);
+  assert.equal((await db.query('SELECT revision FROM account_admin_locks WHERE scope=$1',['roles'])).rows[0].revision,0);
+  console.log('PASS: versões de revisão são únicas e o lock de administração é preservado na migração idempotente.');
   await db.query('INSERT INTO report_deliveries(resultado_id,destinatario,status,content_hash,criado_em) VALUES($1,$2,$3,$4,$5)', [103, 'fixture@example.test', 'SENT', 'unique-hash', 'today']);
   await assert.rejects(db.query('INSERT INTO report_deliveries(resultado_id,destinatario,status,content_hash,criado_em) VALUES($1,$2,$3,$4,$5)', [103, 'fixture@example.test', 'SENT', 'unique-hash', 'today']), /unique|duplicate/i);
   await db.query('DELETE FROM core_resultadoaluno WHERE id=$1', [103]);
   assert.equal((await db.query('SELECT * FROM report_feedback')).rows.length, 0);
   assert.equal((await db.query('SELECT * FROM report_deliveries')).rows.length, 0);
+  assert.equal((await db.query('SELECT * FROM answer_review_events')).rows.length,0);
   assert.equal((await db.query('SELECT * FROM core_simulado')).rows.length, 2);
   console.log('PASS: idempotência e cascade restrito ao resultado excluído.');
 
@@ -66,7 +72,7 @@ try {
   await assert.rejects(db.query('SELECT * FROM student_contacts'), /permission denied/i);
   await assert.rejects(db.query('SELECT * FROM auth_attempt_limits'), /permission denied/i);
   await assert.rejects(db.query('SELECT * FROM email_provider_slots'), /permission denied/i);
-  for (const table of ['essay_import_plans','report_access_links','proof_import_plans','proof_import_pages','storage_deletions']) {
+  for (const table of ['essay_import_plans','report_access_links','proof_import_plans','proof_import_pages','storage_deletions','account_admin_locks','answer_review_events']) {
     await assert.rejects(db.query('SELECT * FROM '+table), /permission denied/i);
   }
   await db.exec('RESET ROLE;');

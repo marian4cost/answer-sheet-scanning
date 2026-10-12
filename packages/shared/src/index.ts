@@ -15,12 +15,19 @@ export interface Score {
   total_acertos: number; total_erros: number; total_rasuras: number;
   total_brancos: number; total_incertas: number; nota_percentual: number;
 }
+export interface AnswerReviewEvent {
+  id: string; versao: number; revisor_id: string; revisor_nome?: string; criado_em: string; motivo: string;
+  respostas_antes: AnswerKey; respostas_depois: AnswerKey; alteracoes: AnswerKey;
+  questoes_revisadas: number[]; status_antes: ReadingStatus; status_depois: ReadingStatus;
+}
 export interface Resultado extends Score {
   id: number; lote_id: number; matricula: string; respostas_detectadas: AnswerKey;
   status: ReadingStatus; mensagem_leitura: string; imagem_debug: string | null;
   criado_em: string; gabarito_do_envio: AnswerKey;
   desempenho_temas: ThemeScore[];
   arquivo_origem?: string; pagina_origem?: number | null; matricula_fonte?: string;
+  respostas_originais?: AnswerKey; status_original?: ReadingStatus; mensagem_leitura_original?: string;
+  revisao_versao?: number; questoes_revisadas?: number[]; revisoes?: AnswerReviewEvent[];
 }
 export interface Indicators {
   total_provas: number; total_envios: number; media_nota: number;

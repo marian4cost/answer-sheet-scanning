@@ -7,6 +7,7 @@ import { useResource } from '@/lib/use-resource';
 import { dateText } from '@/lib/api';
 import { Alert, BackLink, Badge, Empty, Loading, Modal } from './ui';
 import { ResultTabs } from './result-tabs';
+import { AnswerReview } from './answer-review';
 
 export function ResultsView({simuladoId, envioId}: {simuladoId?: number; envioId?: number}) {
   const endpoint = envioId ? `/envios/${envioId}` : `/simulados/${simuladoId}/resultados`;
@@ -58,6 +59,6 @@ export function ResultsView({simuladoId, envioId}: {simuladoId?: number; envioId
       {selected.desempenho_temas.length > 0 && <div className="theme-results"><h4>Acertos por tema</h4>{selected.desempenho_temas.map(theme => <div key={theme.tema}><strong>{theme.tema}</strong><span>{selected.status === 'ERRO_LEITURA' ? 'Leitura indisponível' : `${theme.total_acertos}/${theme.total_questoes} · ${theme.nota_percentual.toLocaleString('pt-BR')}%${selected.total_incertas ? ' (provisório)' : ''}`}</span></div>)}</div>}
       <div className="legend"><span><i className="green-dot"/>Correta</span><span><i className="red-dot"/>Erro ou dupla</span><span><i className="yellow-dot"/>Gabarito oficial</span><span><i className="blue-dot"/>Leitura incerta</span></div><p className="help">A tinta original foi preservada. BNK = em branco; RAS = múltiplas marcações; INC = leitura incerta.</p>
       <div className="answer-detail">{Array.from({length: simulado.total_questoes}, (_, i) => <div key={i} title={simulado.temas.find(range => range.inicio <= i + 1 && range.fim >= i + 1)?.tema || 'Sem tema'}><span>Q{String(i + 1).padStart(2, '0')}</span><strong>{selected.respostas_detectadas[String(i + 1)] || '—'}</strong><small>({selected.gabarito_do_envio[String(i + 1)] || '—'})</small></div>)}</div>
-    </aside><div className="mirror-image">{selected.imagem_debug ? <img src={selected.imagem_debug} alt={`Espelho de respostas da matrícula ${selected.matricula}`}/> : <Empty>Espelho indisponível para esta leitura.</Empty>}</div></div></Modal>}
+    </aside><div className="mirror-image">{selected.imagem_debug ? <img src={selected.imagem_debug} alt={`Espelho de respostas da matrícula ${selected.matricula}`}/> : <Empty>Espelho indisponível para esta leitura.</Empty>}</div><AnswerReview id={selected.id} onSaved={proof => {setSelected(proof.resultado); refresh();}}/></div></Modal>}
   </>;
 }

@@ -1,172 +1,113 @@
 const {test,beforeEach,afterEach} = require('node:test');
 const assert = require('node:assert/strict');
-process.env.SUPABASE_URL = 'https://example.supabase.co';
-process.env.SUPABASE_ANON_KEY = 'mock-only-anon-key';
-const {AuthService,authRequired,teacherAllowed,requestToken} = require('../dist/auth.js');
-const envNames = ['AUTH_ENABLED','VERCEL','TEACHER_EMAILS','SUPABASE_ANON_KEY','WEB_URL','CORS_ORIGINS','AUTH_REGISTRATION_ENABLED','SUPABASE_SERVICE_ROLE_KEY'];
+process.env.SUPABASE_URL='https://example.supabase.co';
+process.env.SUPABASE_ANON_KEY='mock-only-anon-key';
+const {AuthService,authRequired,teacherAllowed,requestToken,accountRole}=require('../dist/auth.js');
+const {currentAccount}=require('../dist/account-context.js');
+const UUID='11111111-1111-4111-8111-111111111111';
+const user={id:UUID,email:'teacher@example.com',email_confirmed_at:'2026-10-10T00:00:00Z',app_metadata:{role:'professor'},user_metadata:{display_name:'Professora Teste'}};
+const envNames=['AUTH_ENABLED','VERCEL','TEACHER_EMAILS','SUPABASE_ANON_KEY','WEB_URL','CORS_ORIGINS','AUTH_REGISTRATION_ENABLED','SUPABASE_SERVICE_ROLE_KEY'];
 let saved;
-beforeEach(() => {saved=Object.fromEntries(envNames.map(key=>[key,process.env[key]]));process.env.AUTH_REGISTRATION_ENABLED='false';process.env.AUTH_ENABLED='true';delete process.env.VERCEL;process.env.TEACHER_EMAILS='teacher@example.com, SECOND@example.com';process.env.SUPABASE_ANON_KEY='mock-only-anon-key';process.env.WEB_URL='';process.env.CORS_ORIGINS='';});
-afterEach(() => {for(const key of envNames) if(saved[key]===undefined) delete process.env[key];else process.env[key]=saved[key];});
-function request({method='GET',path='/api/simulados',headers={}}={}) {return {method,path,headers,get(name){return headers[name.toLowerCase()];}};}
-function response() {return {statusCode:200,body:null,headers:{},cookies:[],cleared:[],status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},setHeader(key,value){this.headers[key]=value;},cookie(...args){this.cookies.push(args);},clearCookie(...args){this.cleared.push(args);}};}
-async function middleware(auth,req) {const res=response();let calls=0;await auth.middleware()(req,res,()=>calls++);return {...res,nextCalls:calls};}
-function provider(t,body,{status=200}={}) {const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});});return calls;}
+beforeEach(()=>{saved=Object.fromEntries(envNames.map(key=>[key,process.env[key]]));process.env.AUTH_REGISTRATION_ENABLED='true';process.env.AUTH_ENABLED='false';delete process.env.VERCEL;process.env.TEACHER_EMAILS='teacher@example.com';process.env.SUPABASE_ANON_KEY='mock-only-anon-key';process.env.SUPABASE_SERVICE_ROLE_KEY='fake-server-key';process.env.WEB_URL='';process.env.CORS_ORIGINS='';});
+afterEach(()=>{for(const key of envNames)if(saved[key]===undefined)delete process.env[key];else process.env[key]=saved[key];});
+function request({method='GET',path='/api/simulados',headers={}}={}){return {method,path,headers,get(name){return headers[name.toLowerCase()];}};}
+function response(){return {statusCode:200,body:null,headers:{},cookies:[],cleared:[],status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},setHeader(key,value){this.headers[key]=value;},cookie(...args){this.cookies.push(args);},clearCookie(...args){this.cleared.push(args);}};}
+async function middleware(auth,req){const res=response();let calls=0,identity;await auth.middleware()(req,res,()=>{calls++;try{identity=currentAccount();}catch{}});return {...res,nextCalls:calls,identity};}
+function provider(t,body,{status=200}={}){const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});});return calls;}
+function routerProvider(t,handler){const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});const result=handler(url,options);return new Response(JSON.stringify(result.body??result),{status:result.status??200,headers:{'Content-Type':'application/json'}});});return calls;}
 
-test('allowlist ignora diferenças de caixa e espaços do cadastro, mas bloqueia aluno e email ausente',()=>{
-  assert.equal(teacherAllowed({email:'TEACHER@EXAMPLE.COM'}),true);assert.equal(teacherAllowed({email:'second@example.com'}),true);
-  assert.equal(teacherAllowed({email:'aluno@example.com'}),false);assert.equal(teacherAllowed({}),false);assert.equal(teacherAllowed({email:'teacher@example.com.evil'}),false);
+test('somente role protegida e email confirmado permitem acesso; allowlist e flag antiga não autorizam',()=>{
+  assert.equal(teacherAllowed(user),true);assert.equal(teacherAllowed({...user,app_metadata:{role:'admin'}}),true);
+  assert.equal(teacherAllowed({...user,app_metadata:{role:'teacher'}}),true);
+  for(const candidate of [{email:user.email},{...user,email_confirmed_at:null},{...user,app_metadata:{}},{...user,app_metadata:{role:'student'},user_metadata:{role:'admin'}},{...user,banned_until:'2999-01-01T00:00:00Z'},{}])assert.equal(teacherAllowed(candidate),false);
+  assert.equal(accountRole({app_metadata:{role:'teacher'}}),'professor');
 });
-test('cadastro aberto permite apenas identidades com email confirmado pelo Supabase',()=>{
-  process.env.AUTH_REGISTRATION_ENABLED='true';
-  assert.equal(teacherAllowed({email:'nova@example.com'}),false);
-  assert.equal(teacherAllowed({email:'nova@example.com',email_confirmed_at:'2026-10-10T00:00:00Z'}),true);
-  assert.equal(teacherAllowed({email:'nova@example.com',user_metadata:{email_confirmed_at:'forged'}}),false);
+test('cadastro público permanece desativado mesmo com AUTH_REGISTRATION_ENABLED=true',async(t)=>{
+  const calls=provider(t,{}),auth=new AuthService();assert.equal(auth.config().registration_enabled,false);
+  await assert.rejects(auth.signup('nova@example.com','Ficticia-123!'),error=>error.getStatus()===403);
+  await assert.rejects(auth.login(user.email,'123456',response(),true),error=>error.getStatus()===403);assert.equal(calls.length,0);
 });
-test('login por senha valida credenciais no Supabase e nunca retorna senha ou token',async(t)=>{
-  process.env.AUTH_REGISTRATION_ENABLED='true';
-  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.includes('/token?')?{access_token:'private-session',expires_in:3600}:{id:'11111111-1111-4111-8111-111111111111',email:'nova@example.com',email_confirmed_at:'confirmed'}),{status:200});});
-  const res=response(),result=await new AuthService().passwordLogin('Nova@example.com','Ficticia-123!',res);
-  assert.match(calls[0].url,/grant_type=password/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:'nova@example.com',password:'Ficticia-123!'});
-  assert.deepEqual(result,{id:'11111111-1111-4111-8111-111111111111',email:'nova@example.com'});assert.equal(res.cookies[0][2].httpOnly,true);
+test('login por senha valida identidade atual no Supabase, sem expor senha ou sessão',async(t)=>{
+  const calls=routerProvider(t,url=>url.includes('/token?')?{access_token:'private-session',expires_in:3600}:user),res=response();
+  const result=await new AuthService().passwordLogin(' TEACHER@example.com ','Ficticia-123!',res);
+  assert.match(calls[0].url,/grant_type=password/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:user.email,password:'Ficticia-123!'});
+  assert.equal(result.id,UUID);assert.equal(result.role,'professor');assert.equal(result.nome,'Professora Teste');assert.equal(res.cookies[0][2].httpOnly,true);
+  assert.doesNotMatch(JSON.stringify(result),/private-session|Ficticia|fake-server-key/);
 });
-test('cadastro gera OTP no servidor e envia somente o código pelo EmailJS, sem senha',async(t)=>{
-  process.env.AUTH_REGISTRATION_ENABLED='true';process.env.SUPABASE_SERVICE_ROLE_KEY='fake-server-key';
-  const calls=provider(t,{email_otp:'12345678'}),messages=[];
-  const auth=new AuthService(undefined,{configured:()=>true,send:async(...args)=>messages.push(args)});
-  const result=await auth.signup('nova@example.com','Ficticia-123!');
-  assert.match(calls[0].url,/admin\/generate_link$/);assert.equal(JSON.parse(calls[0].options.body).type,'signup');
-  assert.equal(messages[0][0],'nova@example.com');assert.match(messages[0][2],/12345678/);assert.doesNotMatch(JSON.stringify(messages),/Ficticia/);assert.doesNotMatch(JSON.stringify(result),/12345678|fake-server-key/);
-});
-test('confirmação de cadastro usa tipo signup e não aceita sessão de outro email',async(t)=>{
-  process.env.AUTH_REGISTRATION_ENABLED='true';const calls=[];
-  const mock=t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified'}:{id:'11111111-1111-4111-8111-111111111111',email:'nova@example.com',email_confirmed_at:'confirmed'}),{status:200});});
-  await new AuthService().login('nova@example.com','12345678',response(),true);assert.equal(JSON.parse(calls[0].options.body).type,'signup');
-  mock.mock.mockImplementation(async(url)=>new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified'}:{id:'11111111-1111-4111-8111-111111111111',email:'outra@example.com',email_confirmed_at:'confirmed'}),{status:200}));
-  const res=response();await assert.rejects(new AuthService().login('nova@example.com','12345678',res,true));assert.equal(res.cookies.length,0);
-});
-test('cadastro com senha curta ou serviço ausente não gera código nem envia mensagem',async(t)=>{
-  process.env.AUTH_REGISTRATION_ENABLED='true';const calls=provider(t,{}),auth=new AuthService();
-  await assert.rejects(auth.signup('nova@example.com','curta'),error=>error.getStatus()===400);
-  await assert.rejects(auth.signup('nova@example.com','Ficticia-123!'),error=>error.getStatus()===503);assert.equal(calls.length,0);
-});
-test('role teacher usa apenas app_metadata validado e não aceita metadados editáveis pelo aluno',()=>{
-  assert.equal(teacherAllowed({email:'outra@example.com',app_metadata:{role:'teacher'}}),true);
-  assert.equal(teacherAllowed({email:'outra@example.com',user_metadata:{role:'teacher'}}),false);
-  assert.equal(teacherAllowed({email:'outra@example.com',app_metadata:{role:'student'}}),false);
-});
-test('autenticação é obrigatória localmente e na nuvem, inclusive com a antiga flag false',()=>{
-  for (const cloud of [undefined,'1']) {
-    if (cloud) process.env.VERCEL=cloud; else delete process.env.VERCEL;
-    for (const value of ['false','true','','FALSE','invalid']) {process.env.AUTH_ENABLED=value;assert.equal(authRequired(),true);}
-    delete process.env.AUTH_ENABLED;assert.equal(authRequired(),true);
+test('login por senha de outra conta ou role removida não cria cookie',async(t)=>{
+  for(const identity of [{...user,email:'outra@example.com'},{...user,app_metadata:{}},{...user,email_confirmed_at:null}]){
+    t.mock.method(globalThis,'fetch',async url=>new Response(JSON.stringify(url.includes('/token?')?{access_token:'session'}:identity),{status:200}));
+    const res=response();await assert.rejects(new AuthService().passwordLogin(user.email,'Ficticia-123!',res));assert.equal(res.cookies.length,0);t.mock.restoreAll();
   }
 });
-test('a antiga flag false não libera leitura nem gravação sem sessão',async(t)=>{
-  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'}),auth=new AuthService();assert.equal(auth.config().required,true);
-  for(const [method,path] of [['GET','/api/simulados'],['POST','/api/simulados'],['GET','/api/contatos'],['GET','/api/resultados/1/boletim/pdf']]) {
-    const res=await middleware(auth,request({method,path}));assert.equal(res.nextCalls,0);assert.equal(res.statusCode,401);assert.equal(res.headers['Cache-Control'],'private, no-store');
-  }
-  assert.equal(calls.length,0);
+test('OTP consulta conta existente e role antes de gerar código sem criar usuário',async(t)=>{
+  const calls=routerProvider(t,url=>url.includes('admin/users?')?{users:[{...user,email_confirmed_at:null}]}:{email_otp:'12345678'}),messages=[];
+  const auth=new AuthService(undefined,{configured:()=>true,send:async(...args)=>messages.push(args)}),result=await auth.requestCode(' TEACHER@example.com ');
+  assert.match(calls[0].url,/admin\/users\?page=1&per_page=200/);assert.match(calls[1].url,/admin\/generate_link$/);
+  assert.deepEqual(JSON.parse(calls[1].options.body),{type:'magiclink',email:user.email});assert.equal(messages[0][0],user.email);assert.match(messages[0][2],/12345678/);assert.doesNotMatch(JSON.stringify(result),/12345678|fake-server-key/);
 });
-test('extração de token respeita Bearer e o nome exato do cookie, sem usar outros cookies',()=>{
+test('email desconhecido ou não administrado não gera magiclink nem envia email',async(t)=>{
+  for(const users of [[],[{...user,app_metadata:{role:'student'}}],[{...user,banned_until:'2999-01-01'}]]){
+    const calls=provider(t,{users}),messages=[],auth=new AuthService(undefined,{configured:()=>true,send:async(...args)=>messages.push(args)});
+    await assert.rejects(auth.requestCode(user.email),error=>error.getStatus()===403);assert.equal(calls.length,1);assert.equal(messages.length,0);assert.match(calls[0].url,/admin\/users/);t.mock.restoreAll();
+  }
+});
+test('OTP fallback usa create_user:false e callback do frontend',async(t)=>{
+  process.env.WEB_URL='https://frontend.example.com/';const calls=routerProvider(t,url=>url.includes('admin/users?')?{users:[user]}:{});
+  const result=await new AuthService().requestCode(user.email);assert.match(result.message,/link de acesso/);
+  const url=new URL(calls[1].url);assert.equal(url.pathname,'/auth/v1/otp');assert.equal(url.searchParams.get('redirect_to'),'https://frontend.example.com/login');assert.deepEqual(JSON.parse(calls[1].options.body),{email:user.email,create_user:false});
+});
+test('admin-list é paginada; serviço administrativo ausente não usa signup como fallback',async(t)=>{
+  const filler=Array.from({length:200},(_,i)=>({...user,id:UUID,email:'conta'+i+'@example.com'}));
+  const calls=routerProvider(t,url=>url.includes('page=1')?{users:filler}:{users:[user]});const users=await new AuthService().providerAccounts();assert.equal(users.length,201);assert.equal(calls.length,2);
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;await assert.rejects(new AuthService().requestCode(user.email),error=>error.getStatus()===503);assert.equal(calls.length,2);
+});
+test('autenticação é obrigatória local e nuvem, independentemente da flag histórica',()=>{
+  for(const cloud of [undefined,'1']){if(cloud)process.env.VERCEL=cloud;else delete process.env.VERCEL;for(const value of ['false','true','','FALSE','invalid']){process.env.AUTH_ENABLED=value;assert.equal(authRequired(),true);}}
+});
+test('proteções privadas e cadastro removido fecham sem sessão antes de consultar dados',async(t)=>{
+  const calls=provider(t,user),auth=new AuthService();for(const path of ['/api/simulados','/api/contatos','/api/auth/me','/api/contas','/api/contas/perfil','/api/auth/cadastro','/api/resultados/1/imagem']){const res=await middleware(auth,request({path}));assert.equal(res.nextCalls,0);assert.equal(res.statusCode,401);assert.equal(res.headers['Cache-Control'],'private, no-store');}assert.equal(calls.length,0);
+});
+test('extração de token usa Bearer e nome exato do cookie',()=>{
   assert.equal(requestToken(request({headers:{authorization:'Bearer token-header',cookie:'enem_session=token-cookie'}})),'token-header');
-  assert.equal(requestToken(request({headers:{cookie:'unrelated=1; enem_session=abc.def.ghi; last=2'}})),'abc.def.ghi');
-  assert.equal(requestToken(request({headers:{cookie:'enem_session_evil=bad; other=x'}})),'');
-  assert.equal(requestToken(request()),'');
+  assert.equal(requestToken(request({headers:{cookie:'unrelated=1; enem_session=abc.def.ghi; last=2'}})),'abc.def.ghi');assert.equal(requestToken(request({headers:{cookie:'enem_session_evil=bad'}})),'');assert.equal(requestToken(request()),'');
 });
-test('middleware bloqueia contatos, boletins, PDFs e imagens sem token antes de ler dados',async(t)=>{
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();
-  for(const path of ['/api/contatos','/api/simulados/1/boletins','/api/resultados/1/boletim/pdf','/media/debug_images/private.png']) {
-    const res=await middleware(auth,request({path}));assert.equal(res.statusCode,401,path);assert.equal(res.nextCalls,0,path);
-  }
-  assert.equal(calls.length,0);
+test('somente endpoints públicos exatos e OPTIONS passam sem sessão',async(t)=>{
+  const calls=provider(t,user),auth=new AuthService();for(const path of ['/api/health','/api/auth/config','/api/auth/codigo','/api/auth/login','/api/auth/session','/api/auth/logout','/api/auth/senha'])assert.equal((await middleware(auth,request({path}))).nextCalls,1,path);
+  assert.equal((await middleware(auth,request({method:'OPTIONS'}))).nextCalls,1);assert.equal((await middleware(auth,request({path:'/api/auth/login/extra'}))).statusCode,401);assert.equal(calls.length,0);
 });
-test('somente rotas públicas de autenticação/health e OPTIONS passam sem sessão',async(t)=>{
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();
-  for(const path of ['/api/health','/api/auth/config','/api/auth/codigo','/api/auth/login','/api/auth/session','/api/auth/logout']) assert.equal((await middleware(auth,request({path}))).nextCalls,1,path);
-  assert.equal((await middleware(auth,request({method:'OPTIONS'}))).nextCalls,1);
-  assert.equal((await middleware(auth,request({path:'/api/auth/login/extra'}))).statusCode,401);assert.equal(calls.length,0);
+test('identidade atual validada cria contexto com role; cabeçalhos e user_metadata não alteram permissão',async(t)=>{
+  const calls=provider(t,{...user,user_metadata:{role:'admin',display_name:'Nome\nSeguro'}}),res=await middleware(new AuthService(),request({headers:{authorization:'Bearer professor-jwt','x-role':'admin'}}));
+  assert.equal(res.nextCalls,1);assert.equal(res.identity.role,'professor');assert.equal(res.identity.nome,'NomeSeguro');assert.equal(calls[0].options.headers.Authorization,'Bearer professor-jwt');
 });
-test('conta válida de professor libera a rota e define cache privado sem armazenamento',async(t)=>{
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const result=await middleware(new AuthService(),request({headers:{cookie:'enem_session=mock-jwt'}}));
-  assert.equal(result.nextCalls,1);assert.equal(result.headers['Cache-Control'],'private, no-store');
-  assert.equal(calls[0].options.headers.Authorization,'Bearer mock-jwt');assert.match(calls[0].url,/\/auth\/v1\/user$/);
+test('role removida vale imediatamente para o mesmo token revalidado',async(t)=>{
+  let identity=user;const calls=routerProvider(t,()=>identity),auth=new AuthService(),req=request({headers:{authorization:'Bearer old-jwt'}});
+  assert.equal((await middleware(auth,req)).nextCalls,1);identity={...user,app_metadata:{role:'student'}};assert.equal((await middleware(auth,req)).statusCode,403);assert.equal(calls.length,2);
 });
-test('conta autenticada de aluno recebe 403 e nunca acessa dados dos simulados',async(t)=>{
-  provider(t,{email:'student@example.com',user_metadata:{role:'teacher'}});
-  const result=await middleware(new AuthService(),request({headers:{authorization:'Bearer student-jwt'}}));assert.equal(result.statusCode,403);assert.equal(result.nextCalls,0);
+test('configuração ausente, erro de rede, JWT expirado e JSON inválido sempre fecham acesso',async(t)=>{
+  const auth=new AuthService(),req=request({headers:{authorization:'Bearer token'}}),mock=t.mock.method(globalThis,'fetch',async()=>{throw new Error('offline');});assert.equal((await middleware(auth,req)).statusCode,401);
+  mock.mock.mockImplementation(async()=>new Response(JSON.stringify({error:'invalid JWT'}),{status:401}));assert.equal((await middleware(auth,req)).statusCode,401);
+  mock.mock.mockImplementation(async()=>new Response('not json',{status:200}));assert.equal((await middleware(auth,req)).statusCode,401);
+  delete process.env.SUPABASE_ANON_KEY;assert.deepEqual(auth.config(),{required:true,configured:false,registration_enabled:false});assert.equal((await middleware(auth,req)).statusCode,401);
 });
-test('nuvem sem configuração de acesso fecha a rota em vez de permitir acesso anônimo',async(t)=>{
-  process.env.VERCEL='1';delete process.env.AUTH_ENABLED;delete process.env.SUPABASE_ANON_KEY;
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();assert.deepEqual(auth.config(),{required:true,configured:false,registration_enabled:false});
-  const result=await middleware(auth,request({headers:{authorization:'Bearer mock-jwt'}}));assert.equal(result.statusCode,401);assert.equal(result.nextCalls,0);assert.equal(calls.length,0);
+test('token vazio, UUID inválido e email/code/password malformados são bloqueados',async(t)=>{
+  const calls=provider(t,{...user,id:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}),auth=new AuthService();await assert.rejects(auth.user(''));await assert.rejects(auth.user('x'.repeat(8001)));assert.equal(calls.length,0);await assert.rejects(auth.user('token'),error=>error.getStatus()===401);
+  for(const email of [null,123,'sem-email','x\n@y.com'])await assert.rejects(auth.requestCode(email),error=>error.getStatus()===400);
+  for(const code of ['123','abcdef','12345678901',null])await assert.rejects(auth.login(user.email,code,response()),error=>error.getStatus()===400);
+  for(const password of ['curta',null,'x'.repeat(129)])await assert.rejects(auth.passwordLogin(user.email,password,response()),error=>error.getStatus()===400);assert.equal(calls.length,1);
 });
-test('erro de rede, JWT expirado e corpo de autenticação inválido nunca liberam a rota',async(t)=>{
-  const auth=new AuthService(),req=request({headers:{authorization:'Bearer mock-jwt'}});
-  const mocked=t.mock.method(globalThis,'fetch',async()=>{throw new Error('network offline');});
-  assert.equal((await middleware(auth,req)).statusCode,401);
-  mocked.mock.mockImplementation(async()=>new Response(JSON.stringify({error:'invalid JWT'}),{status:401}));assert.equal((await middleware(auth,req)).statusCode,401);
-  mocked.mock.mockImplementation(async()=>new Response('not json',{status:200}));assert.equal((await middleware(auth,req)).statusCode,401);
+test('verificação de OTP usa email, identidade correta e cookie Secure HttpOnly com TTL limitado',async(t)=>{
+  const calls=routerProvider(t,url=>url.endsWith('/verify')?{access_token:'verified-jwt',expires_in:7200}:user),res=response(),result=await new AuthService().login(user.email,'123456',res);
+  assert.equal(result.email,user.email);assert.deepEqual(JSON.parse(calls[0].options.body),{email:user.email,token:'123456',type:'email'});assert.equal(res.cookies.length,1);const [name,value,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(value,'verified-jwt');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
 });
-test('token vazio ou excessivo é rejeitado antes de consultar o provedor',async(t)=>{
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});const auth=new AuthService();
-  await assert.rejects(auth.user(''),/Entre/);await assert.rejects(auth.user('x'.repeat(8001)),/Entre/);assert.equal(calls.length,0);
+test('OTP de outro email, conta sem role e código rejeitado nunca criam sessão',async(t)=>{
+  for(const identity of [{...user,email:'outra@example.com'},{...user,app_metadata:{}}]){routerProvider(t,url=>url.endsWith('/verify')?{access_token:'verified'}:identity);const res=response();await assert.rejects(new AuthService().login(user.email,'123456',res));assert.equal(res.cookies.length,0);t.mock.restoreAll();}
+  provider(t,{error:'wrong code'},{status:400});const res=response();await assert.rejects(new AuthService().login(user.email,'123456',res));assert.equal(res.cookies.length,0);
 });
-test('pedido de OTP bloqueia email fora da allowlist antes de enviar qualquer mensagem',async(t)=>{
-  const calls=provider(t,{});await assert.rejects(new AuthService().requestCode('student@example.com'),error=>error.getStatus()===403);assert.equal(calls.length,0);
+test('limites IP e email são aplicados antes de lookup ou verificação remota',async(t)=>{
+  const calls=provider(t,user),db={get:async()=>undefined},auth=new AuthService(db);
+  for(const action of [()=>auth.requestCode(user.email),()=>auth.passwordLogin(user.email,'Ficticia-123!',response()),()=>auth.login(user.email,'123456',response())])await assert.rejects(action(),error=>error.getStatus()===429);assert.equal(calls.length,0);
 });
-test('pedido de OTP autorizado usa apenas o endereço da allowlist normalizado',async(t)=>{
-  const calls=provider(t,{});const result=await new AuthService().requestCode(' TEACHER@EXAMPLE.COM ');
-  assert.match(result.message,/Confira/);assert.equal(calls.length,1);assert.match(calls[0].url,/\/otp$/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:'teacher@example.com',create_user:true});
-});
-test('emails/códigos malformados e conta não autorizada são bloqueados antes da verificação',async(t)=>{
-  const calls=provider(t,{});const auth=new AuthService();
-  for(const email of [null,123,'sem-email','x\n@y.com']) await assert.rejects(auth.requestCode(email),error=>error.getStatus()===400);
-  for(const code of ['123','abcdef','12345678901',null]) await assert.rejects(auth.login('teacher@example.com',code,response()),error=>error.getStatus()===400);
-  await assert.rejects(auth.login('student@example.com','123456',response()),error=>error.getStatus()===403);assert.equal(calls.length,0);
-});
-test('login valida código e identidade com o provedor antes de criar cookie seguro HttpOnly',async(t)=>{
-  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'verified-jwt',expires_in:7200}:{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'}),{status:200});});
-  const res=response(),result=await new AuthService().login('teacher@example.com','123456',res);
-  assert.equal(result.email,'teacher@example.com');assert.equal(calls.length,2);assert.equal(res.cookies.length,1);
-  const [name,value,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(value,'verified-jwt');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
-});
-test('login não cria sessão se a verificação do código falha ou retorna conta sem permissão',async(t)=>{
-  const mock=t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({error:'wrong code'}),{status:400}));
-  const auth=new AuthService(),res=response();await assert.rejects(auth.login('teacher@example.com','123456',res));assert.equal(res.cookies.length,0);
-  mock.mock.mockImplementation(async(url)=>new Response(JSON.stringify(url.endsWith('/verify')?{access_token:'student-jwt'}:{email:'student@example.com'}),{status:200}));
-  await assert.rejects(auth.login('teacher@example.com','123456',res),error=>error.getStatus()===403);assert.equal(res.cookies.length,0);
-});
-test('logout limpa o mesmo cookie com proteção de transporte e sem divulgar token',()=>{
-  const res=response();assert.deepEqual(new AuthService().logout(res),{ok:true});assert.equal(res.cleared[0][0],'enem_session');assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
-});
-test('cookies continuam Secure na nuvem mesmo com a antiga flag false',async(t)=>{
-  process.env.VERCEL='1';process.env.AUTH_ENABLED='false';provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});
-  const auth=new AuthService(),res=response();await auth.session('mock-magic-link-token',res);auth.logout(res);
-  assert.equal(res.cookies[0][2].secure,true);assert.equal(res.cleared[0][1].secure,true);
-});
-test('pedido de link mágico usa callback /login da interface configurada e mantém allowlist',async(t)=>{
-  process.env.WEB_URL='https://frontend.example.com/';const calls=provider(t,{});
-  const result=await new AuthService().requestCode('TEACHER@EXAMPLE.COM');
-  const url=new URL(calls[0].url);assert.equal(url.pathname,'/auth/v1/otp');assert.equal(url.searchParams.get('redirect_to'),'https://frontend.example.com/login');
-  assert.match(result.message,/link de acesso/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:'teacher@example.com',create_user:true});
-  delete process.env.WEB_URL;process.env.CORS_ORIGINS='https://fallback.example.com,https://preview.example.com';
-  await new AuthService().requestCode('teacher@example.com');assert.equal(new URL(calls[1].url).searchParams.get('redirect_to'),'https://fallback.example.com/login');
-});
-test('sessão de link mágico valida professor no Supabase antes de criar cookie e não retorna token',async(t)=>{
-  const calls=provider(t,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'}),res=response();
-  const result=await new AuthService().session('mock-magic-link-token',res);
-  assert.deepEqual(result,{id:'11111111-1111-4111-8111-111111111111',email:'teacher@example.com'});assert.equal(calls[0].options.headers.Authorization,'Bearer mock-magic-link-token');assert.match(calls[0].url,/\/user$/);
-  assert.equal(res.cookies.length,1);const [name,token,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(token,'mock-magic-link-token');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
-  assert.doesNotMatch(JSON.stringify(result),/mock-magic-link-token/);
-});
-test('sessão de link mágico recusa token inválido, expirado ou de aluno sem criar cookie',async(t)=>{
-  const calls=provider(t,{email:'student@example.com'}),auth=new AuthService(),res=response();
-  await assert.rejects(auth.session(null,res),error=>error.getStatus()===400);
-  await assert.rejects(auth.session('',res),error=>error.getStatus()===401);
-  await assert.rejects(auth.session('x'.repeat(8001),res),error=>error.getStatus()===401);assert.equal(calls.length,0);
-  await assert.rejects(auth.session('mock-student-token',res),error=>error.getStatus()===403);assert.equal(res.cookies.length,0);
-  t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({error:'expired JWT'}),{status:401}));
-  await assert.rejects(auth.session('mock-expired-token',res),error=>error.getStatus()===401);assert.equal(res.cookies.length,0);
+test('logout e sessão preservam Secure HttpOnly e nunca retornam tokens',async(t)=>{
+  provider(t,user);const auth=new AuthService(),res=response(),result=await auth.session('mock-token',res);assert.equal(result.role,'professor');assert.doesNotMatch(JSON.stringify(result),/mock-token/);assert.equal(res.cookies[0][2].secure,true);assert.deepEqual(auth.logout(res),{ok:true});assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
 });
