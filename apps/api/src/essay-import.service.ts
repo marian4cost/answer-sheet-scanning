@@ -171,6 +171,7 @@ export class EssayImportService {
   }
 
   async import(simuladoId: number, token: unknown, confirmation: unknown, updateExisting: unknown): Promise<EssayImportResult> {
+    await this.simulados.get(simuladoId);
     if (confirmation !== 'sim' || typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new BadRequestException('Revise a prévia das redações e confirme a importação.');
     return this.db.transaction(async () => {
       await this.simulados.get(simuladoId);

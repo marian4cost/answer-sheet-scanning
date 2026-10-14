@@ -7,6 +7,14 @@ export interface Simulado {
   id: number; titulo: string; data_criacao: string; gabarito_oficial: AnswerKey;
   total_questoes: number; temas: ThemeRange[]; expira_em?: string | null;
   total_provas: number; total_envios: number; gabarito_valido: boolean;
+  acesso: 'proprietario' | 'compartilhado'; pode_editar: boolean;
+  compartilhado_por?: {nome: string; email: string};
+}
+export interface SimuladoShare {
+  id: string; destinatario_id: string; email: string; nome: string; criado_em: string;
+}
+export interface SimuladoSharesData {
+  simulado_id: number; expira_em: string | null; compartilhamentos: SimuladoShare[];
 }
 export interface Envio {
   id: number; simulado_id: number; titulo: string; criado_em: string; total_provas: number;

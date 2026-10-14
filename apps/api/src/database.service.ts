@@ -210,6 +210,12 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
         status_antes TEXT NOT NULL, status_depois TEXT NOT NULL, UNIQUE(resultado_id,versao)
       );
       CREATE INDEX IF NOT EXISTS answer_reviews_result ON answer_review_events(resultado_id,versao);`);
+    this.sqlite!.exec(`CREATE TABLE IF NOT EXISTS simulado_shares (
+      id TEXT PRIMARY KEY, simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
+      owner_id TEXT NOT NULL, destinatario_id TEXT NOT NULL, email TEXT NOT NULL, nome TEXT NOT NULL DEFAULT '',
+      proprietario_email TEXT NOT NULL, proprietario_nome TEXT NOT NULL DEFAULT '', criado_em TEXT NOT NULL,
+      CHECK(owner_id<>destinatario_id), UNIQUE(simulado_id,destinatario_id)
+    ); CREATE INDEX IF NOT EXISTS simulado_shares_recipient ON simulado_shares(destinatario_id,simulado_id);`);
     if (!columns('answer_review_events').some(column => column.name === 'revisor_nome')) this.sqlite!.exec("ALTER TABLE answer_review_events ADD COLUMN revisor_nome TEXT NOT NULL DEFAULT ''");
     for (const [name, initial] of [['competencias_redacao', '[]'], ['avaliador_redacao', ''], ['situacao_redacao', ''], ['origem_redacao', 'manual']]) {
       if (!columns('report_feedback').some(column => column.name === name)) this.sqlite!.exec(`ALTER TABLE report_feedback ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${initial}'`);

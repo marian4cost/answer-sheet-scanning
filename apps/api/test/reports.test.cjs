@@ -1,4 +1,4 @@
-const {test, before, after} = require('./account-fixture.cjs');
+const {test, before, after, FIXTURE_ACCOUNT} = require('./account-fixture.cjs');
 const assert = require('node:assert/strict');
 const {mkdtempSync, rmSync, writeFileSync, mkdirSync} = require('node:fs');
 const {tmpdir} = require('node:os');
@@ -18,6 +18,8 @@ const {ContactsService, validEmail} = require('../dist/contacts.service.js');
 const {ReportsService, ReportEmailGateway, reportHtml} = require('../dist/reports.service.js');
 const {grade} = require('../dist/grading.js');
 const {assetPath} = require('../dist/assets.js');
+const {formatReportCount, reportInterpretation, reportMethodology, reportAdditionalThemes} = require('@enem/shared/src/report-presentation');
+const {withAccount} = require('../dist/account-context');
 const key = Object.fromEntries(Array.from({length: 50}, (_, i) => [String(i + 1), 'ABCDE'[i % 5]]));
 const themes = [{inicio: 1, fim: 15, tema: 'Linguagens'}, {inicio: 16, fim: 30, tema: 'Ciências da Natureza'}, {inicio: 31, fim: 40, tema: 'Matemática'}, {inicio: 41, fim: 50, tema: 'História e Ciências Humanas'}];
 let db, contacts, reports, simulados, result1, result2, result3, simuladoId, gateway;
@@ -141,12 +143,14 @@ test('feedback e nota manual persistem; valida limites e escapam HTML sem apagar
   const html = reportHtml(report); assert.doesNotMatch(html, /<script>/); assert.match(html, /&lt;script&gt;/); assert.match(html, /&amp;/);
   assert.equal((await reports.report(result1)).redacao.nota_redacao, 880);
 });
-test('PDF de 50 questões segue modelo individual com notas de 0 a 10 sem alterar percentual armazenado', async () => {
+test('PDF de 50 questões apresenta acertos por área sem média geral e mantém a redação', async () => {
   const report = await reports.report(result1);
   const pdf = await reports.pdf({...report, redacao: {nota_redacao: 880, feedback_redacao: 'Seu texto apresenta uma tese clara e argumentos consistentes. Revise a pontuação e detalhe melhor a proposta de intervenção.'}});
   assert.equal(pdf.subarray(0,5).toString(), '%PDF-'); assert.ok(pdf.length > 3000);
   const pages=(pdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length;assert.ok(pages >= 2 && pages <= 3, `paginação inesperada: ${pages}`);
-  const content=pdfText(pdf);for(const text of ['BOLETIM INDIVIDUAL','MATRÍCULA','CURSO','AVALIAÇÃO','9,20 / 10','Matemática','Ciências Humanas','Questões 26 a 50','880 / 1000']) assert.ok(content.includes(text),text);
+  const content=pdfText(pdf);for(const text of ['BOLETIM INDIVIDUAL','MATRÍCULA','CURSO','AVALIAÇÃO','12/15','14/15','10/10','MATEMÁTICA','CIÊNCIAS HUMANAS','Questões 26 a 50','880 / 1000']) assert.ok(content.includes(text),text);
+  assert.doesNotMatch(content,/Resultado geral|Nota objetiva|Escala objetiva|9,20 \/ 10|equivalente à nota|maior nota/i);
+  assert.doesNotMatch(content,/\d+,\d{2} \/ 10\b/);
   assert.equal((await simulados.result(result1)).resultado.nota_percentual,92);assert.equal(report.geral.nota_percentual,92);
   // Optional QA artifact uses fictitious records only, never the database from the user.
   if (process.env.REPORT_QA_PDF) {mkdirSync(resolve(process.env.REPORT_QA_PDF, '..'), {recursive:true}); writeFileSync(process.env.REPORT_QA_PDF, pdf);}
@@ -172,6 +176,7 @@ test('chave histórica incompleta bloqueia envio em vez de aceitar nota fabricad
   const batch = await db.get('SELECT lote_id FROM core_resultadoaluno WHERE id=?',result1);
   await db.run('UPDATE core_lotecorrecao SET gabarito_snapshot=? WHERE id=?','{}',batch.lote_id);
   const report = await reports.report(result1); assert.equal(report.apto_envio,false); assert.match(report.pendencias.join(),/chave histórica/);assert.equal(report.nota_geral_dez,null);assert.ok(report.areas.every(area=>area.nota_dez===null));assert.ok(report.questoes.every(q=>q.resultado==='PENDENTE'));
+  const content=pdfText(await reports.pdf(report));assert.match(content,/Pendente/);assert.doesNotMatch(content,/12\/15|14\/15|10\/10|0\/15/);
   await db.run('UPDATE core_lotecorrecao SET gabarito_snapshot=? WHERE id=?',JSON.stringify(key),batch.lote_id);
 });
 test('email não fica disponível sem um provedor/remetente e nenhum teste acessa SMTP real', async () => {
@@ -206,7 +211,7 @@ test('envio confirmado usa destinatário exato e é idempotente em novo serviço
   assert.equal(sent[0].report.matricula,'000123'); assert.equal(sent[0].report.resultado_id,result1);
   const access=new URL(sent[0].accessUrl);assert.equal(access.pathname,'/boletim');assert.match(access.hash.slice(1),/^[A-Za-z0-9_-]{43}$/);assert.equal(access.search,'');
   const pdf=await reports.publicPdf(access.hash.slice(1));assert.equal(pdf.subarray(0,5).toString(),'%PDF-');
-  assert.match(pdfText(pdf),/9,20 \/ 10/);
+  assert.match(pdfText(pdf),/12\/15/);assert.doesNotMatch(pdfText(pdf),/9,20 \/ 10/);
   const reopened = new ReportsService(db,simulados,contacts,gateway); const replay = await reopened.send(simuladoId,plan.token,'sim');
   assert.equal(replay.total_enviados,0); assert.equal(replay.total_ignorados,1); assert.equal(replay.resultados[0].status,'ENVIADO'); assert.equal(sent.length,1);
 });
@@ -268,9 +273,122 @@ test('PDF de 60 questões conserva nomes/cursos longos, última questão, branco
   const preview=await contacts.preview(Buffer.from(`matricula,email,nome,curso\nFICTICIO060,ficticio60@example.com,${longName},${longCourse}\n`),'ficticio.csv');assert.equal(preview.erros.length,0);await contacts.import(preview.token,'sim');
   const report=await reports.saveEssay(r.lastInsertRowid,{nota_redacao:840,feedback_redacao:'Feedback fictício: apresente exemplos concretos e desenvolva a conclusão.'});
   assert.equal(report.total_questoes,60);assert.equal(report.nota_geral_dez,9.33);assert.equal(report.questoes.at(-1).numero,60);assert.equal(report.questoes.at(-1).resultado,'INCORRETA');
-  const pdf=await reports.pdf(report),content=pdfText(pdf);assert.match(content,/Questões 31 a 60/);assert.match(content,/9,33 \/ 10/);assert.match(content,/840 \/ 1000/);assert.match(content,/Área Multidisciplinar/);assert.match(content,/Estudante Fictício/);
+  const pdf=await reports.pdf(report),content=pdfText(pdf);assert.match(content,/Questões 31 a 60/);assert.match(content,/13\/15/);assert.match(content,/15\/15/);assert.doesNotMatch(content,/Resultado geral|9,33 \/ 10/);assert.match(content,/840 \/ 1000/);assert.match(content,/Área Multidisciplinar/);assert.match(content,/Estudante Fictício/);
   assert.ok((pdf.toString('latin1').match(/\/Type \/Page\b/g)||[]).length<=4);
   const standardPdf=await reports.pdf({...report,nome:'Estudante fictício sessenta',curso:'Técnico em Edificações'});
   assert.equal((standardPdf.toString('latin1').match(/\/Type \/Page\b/g)||[]).length,2);
   if (process.env.REPORT_QA_PDF) {writeFileSync(resolve(process.env.REPORT_QA_PDF,'..','boletim_modelo_60_questoes.pdf'),standardPdf);writeFileSync(resolve(process.env.REPORT_QA_PDF,'..','boletim_nome_curso_longos_qa.pdf'),pdf);}
+});
+
+test('formatação do boletim usa contagens e não fabrica acertos em leitura pendente', () => {
+  assert.equal(formatReportCount(2,25),'2/25');assert.equal(formatReportCount(0,25),'0/25');
+  assert.equal(formatReportCount(0,0),'Sem questões');assert.equal(formatReportCount(2,25,false),'Pendente');
+  assert.equal(formatReportCount(26,25),'Pendente');assert.equal(formatReportCount(2.5,25),'Pendente');
+  assert.equal(formatReportCount(-1,25),'Pendente');assert.equal(formatReportCount(2,-1),'Pendente');
+  const report={nota_geral_dez:9.2,status:'SUCESSO',geral:{total_acertos:46,total_erros:2,total_brancos:1,total_rasuras:1,total_incertas:0,nota_percentual:92}};
+  assert.doesNotMatch(reportInterpretation(report),/46|92|9,20|equivalente|nota geral/);
+  assert.match(reportInterpretation({...report,status:'ALERTA_REVISAO'}),/provisórios/);
+  assert.match(reportInterpretation({...report,nota_geral_dez:null}),/pendentes/);
+  assert.doesNotMatch(reportMethodology(),/× 10|0 a 10\.|nota objetiva/i);
+  assert.match(reportMethodology(),/Redação: avaliação manual de 0 a 1000/);
+});
+
+test('PDF não modifica hash histórico e apresenta temas próprios sem nota objetiva', async () => {
+  const original=await reports.report(result1), before=JSON.stringify(original);
+  const report={...original,temas:[{tema:'Biologia celular',total_questoes:25,total_acertos:2,total_erros:23,total_brancos:0,total_rasuras:0,total_incertas:0,nota_percentual:8}],interpretacao:'Nota geral 9,20 / 10. Média geral legada.',metodologia:'Escala objetiva: 0 a 10.'};
+  const snapshot=JSON.stringify(report),pdf=await reports.pdf(report),content=pdfText(pdf);
+  assert.match(content,/Biologia celular/);assert.match(content,/2\/25/);
+  assert.doesNotMatch(content,/Média geral|Nota geral|9,20 \/ 10|Escala objetiva/);
+  assert.equal(JSON.stringify(report),snapshot);assert.equal(JSON.stringify(original),before);
+  assert.equal((await reports.report(result1)).content_hash,original.content_hash);
+  if (process.env.REPORT_QA_PDF) writeFileSync(resolve(process.env.REPORT_QA_PDF,'..','boletim_tema_proprio_qa.pdf'),pdf);
+});
+
+test('HTML do boletim mostra acertos sem nota geral e preserva avaliação manual e objeto histórico', async () => {
+  const original=await reports.report(result1);
+  const report={...original,areas:[{...original.areas[0],area:'Biologia celular',total_questoes:25,total_acertos:2,nota_dez:0.8}],
+    interpretacao:'Média geral legada: 9,20 / 10.',metodologia:'Escala objetiva: 0 a 10.',
+    redacao:{nota_redacao:880,feedback_redacao:'Feedback fictício: revise a conclusão.'}};
+  const before=JSON.stringify(report);
+  for (const attachment of [true,false]) {
+    const html=reportHtml(report,attachment);
+    assert.match(html,/<th>Área<\/th><th>Acertos<\/th>/);assert.match(html,/Biologia celular/);assert.match(html,/>2\/25</);
+    assert.doesNotMatch(html,/<th>Nota<\/th>|Nota objetiva|Nota geral|Resultado geral|Média geral|Escala objetiva|9,20 \/ 10|equivalente à nota|maior nota/i);
+    assert.match(html,/880 \/ 1000/);assert.match(html,/Feedback fictício: revise a conclusão\./);
+    assert.match(html,/Este boletim não calcula a TRI do ENEM/);
+  }
+  assert.equal(JSON.stringify(report),before);
+  assert.equal((await reports.report(result1)).content_hash,original.content_hash);
+});
+
+test('HTML marca acertos como pendentes quando a chave histórica está incompleta', async () => {
+  const original=await reports.report(result1);
+  const report={...original,nota_geral_dez:null,areas:[{...original.areas[0],area:'Biologia celular',total_questoes:25,total_acertos:2,nota_dez:null}]};
+  const html=reportHtml(report,false);
+  assert.match(html,/>Pendente</);assert.doesNotMatch(html,/>2\/25<|>0\/25</);
+  assert.match(html,/os acertos por área e tema ficam pendentes/);
+});
+
+test('renderização por contagens mantém modelo v2, hash e link de boletim enviado válidos', async () => {
+  const answers={...key,'1':'E','2':'BNK','3':'RAS','16':'B'},score=grade(answers,key,'ALERTA_RASURA',50);
+  const batch=await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',new Date().toISOString(),simuladoId,JSON.stringify(key));
+  const row=await db.run('INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,total_incertas,nota_percentual,status,lote_id,mensagem_leitura) VALUES(?,?,?,?,?,?,?,?,?,?,?)','FICTICIOHTML',JSON.stringify(answers),score.total_acertos,score.total_erros,score.total_rasuras,score.total_brancos,score.total_incertas,score.nota_percentual,'ALERTA_RASURA',batch.lastInsertRowid,'');
+  const preview=await contacts.preview(Buffer.from('matricula,email,nome,curso\nFICTICIOHTML,html-ficticio@example.com,Aluno fictício HTML,Curso fictício\n'),'html-ficticio.csv');
+  assert.deepEqual(preview.erros,[]);await contacts.import(preview.token,'sim');
+  // Simulate a report issued before access metadata was added to Simulado DTOs.
+  const resultOwned=simulados.resultOwned;
+  let before;
+  try {
+    simulados.resultOwned=async function(id) {
+      const result=await resultOwned.call(this,id);
+      const {acesso,pode_editar,compartilhado_por,...legacySimulado}=result.simulado;
+      return {...result,simulado:legacySimulado};
+    };
+    before=await reports.report(row.lastInsertRowid);
+    const plan=await reports.plan(simuladoId,[row.lastInsertRowid]);await reports.send(simuladoId,plan.token,'sim');
+  } finally {simulados.resultOwned=resultOwned;}
+  const token=new URL(sent.at(-1).accessUrl).hash.slice(1);
+  const accessBefore=await reports.publicReport(token);
+  assert.equal(accessBefore.boletim.modelo,'boletim_individual_v2');assert.equal(accessBefore.boletim.nota_geral_dez,9.2);
+  const html=reportHtml(before,false);assert.match(html,/>12\/15</);assert.doesNotMatch(html,/9,20 \/ 10/);
+  const pdf=await reports.publicPdf(token);assert.match(pdfText(pdf),/12\/15/);assert.doesNotMatch(pdfText(pdf),/9,20 \/ 10/);
+  const after=await reports.report(row.lastInsertRowid),accessAfter=await reports.publicReport(token);
+  assert.equal(after.content_hash,before.content_hash);assert.equal(after.modelo,before.modelo);
+  assert.equal(accessAfter.boletim.nota_geral_dez,9.2);assert.equal(accessAfter.boletim.questoes.length,50);
+  assert.equal((await db.get('SELECT content_hash FROM report_deliveries WHERE resultado_id=?',row.lastInsertRowid)).content_hash,before.content_hash);
+  const reader={id:'22222222-2222-4222-8222-222222222222',email:'reader-ficticio@example.test'},grantId='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  await db.run('INSERT INTO simulado_shares(id,simulado_id,owner_id,destinatario_id,email,nome,proprietario_email,proprietario_nome,criado_em) VALUES(?,?,?,?,?,?,?,?,?)',grantId,simuladoId,FIXTURE_ACCOUNT.id,reader.id,reader.email,'Leitor fictício',FIXTURE_ACCOUNT.email,'Professor fictício',new Date().toISOString());
+  try {
+    await withAccount(reader,async()=>{
+      const shared=await simulados.results(simuladoId);assert.equal(shared.simulado.acesso,'compartilhado');assert.equal(shared.simulado.pode_editar,false);
+      await assert.rejects(reports.report(row.lastInsertRowid),/não encontrado/);
+    });
+    assert.equal((await reports.report(row.lastInsertRowid)).content_hash,before.content_hash);
+    assert.equal((await reports.publicReport(token)).boletim.questoes.length,50);
+  } finally {await db.run('DELETE FROM simulado_shares WHERE id=?',grantId);}
+});
+
+test('tema Técnico real fica visível além das áreas ENEM com acertos calculados pelas dez questões', async () => {
+  const technicalThemes=[{inicio:1,fim:25,tema:'Linguagens'},{inicio:26,fim:40,tema:'Matemática'},{inicio:41,fim:50,tema:'Técnico'}];
+  const simulado=await simulados.create('Simulado fictício - tema Técnico',undefined,50,technicalThemes,key);
+  const answers={...key,...Object.fromEntries(Array.from({length:8},(_,index)=>{const number=String(41+index);return [number,key[number]==='A'?'B':'A'];}))};
+  const score=grade(answers,key,'SUCESSO',50);
+  const batch=await db.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',new Date().toISOString(),simulado.id,JSON.stringify(key));
+  const result=await db.run('INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,total_incertas,nota_percentual,status,lote_id,mensagem_leitura) VALUES(?,?,?,?,?,?,?,?,?,?,?)','FICTICIOTEC',JSON.stringify(answers),score.total_acertos,score.total_erros,score.total_rasuras,score.total_brancos,score.total_incertas,score.nota_percentual,'SUCESSO',batch.lastInsertRowid,'');
+  const contact=await contacts.preview(Buffer.from('matricula,email,nome,curso\nFICTICIOTEC,tecnico-ficticio@example.com,Estudante fictício Técnico,Curso Técnico Fictício\n'),'tecnico-ficticio.csv');
+  assert.deepEqual(contact.erros,[]);await contacts.import(contact.token,'sim');
+  const report=await reports.saveEssay(result.lastInsertRowid,{nota_redacao:760,competencias_redacao:[160,160,120,160,160],feedback_redacao:'Avaliação fictícia: revise a conclusão e acrescente exemplos.'});
+  const before=JSON.stringify(report),technical=report.temas.find(theme=>theme.tema==='Técnico');
+  assert.ok(technical);assert.equal(technical.total_acertos,2);assert.equal(technical.total_questoes,10);
+  assert.equal(report.questoes.filter(question=>question.tema==='Técnico').length,10);
+  assert.equal(report.questoes.filter(question=>question.tema==='Técnico'&&question.resultado==='CORRETA').length,2);
+  assert.ok(report.questoes.filter(question=>question.tema==='Técnico').every(question=>question.area===null));
+  assert.deepEqual(reportAdditionalThemes(report).map(theme=>theme.tema),['Técnico']);
+  assert.equal(formatReportCount(technical.total_acertos,technical.total_questoes),'2/10');
+  assert.deepEqual(report.areas.map(area=>[area.area,area.total_questoes]),[['Linguagens',25],['Ciências da Natureza',0],['Matemática',15],['Ciências Humanas',0]]);
+  const pdf=await reports.pdf(report),content=pdfText(pdf);assert.match(content,/Acertos por tema/);assert.match(content,/Técnico/);assert.match(content,/2\/10/);assert.match(content,/25\/25/);assert.match(content,/15\/15/);assert.match(content,/760 \/ 1000/);
+  assert.doesNotMatch(content,/Resultado geral|Nota objetiva|Escala objetiva|equivalente à nota/);
+  const html=reportHtml(report,false);assert.match(html,/>Técnico<\/td><td>2\/10<\/td>/);
+  assert.equal(JSON.stringify(report),before);assert.equal((await reports.report(result.lastInsertRowid)).content_hash,report.content_hash);
+  if(process.env.REPORT_QA_EXTRA_PDF){mkdirSync(resolve(process.env.REPORT_QA_EXTRA_PDF,'..'),{recursive:true});writeFileSync(process.env.REPORT_QA_EXTRA_PDF,pdf);}
 });

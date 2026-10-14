@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, ArrowUpRight, Braces, ChartNoAxesCombined, Code2, Github, Globe, Linkedin, ScanLine } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Braces, ChartNoAxesCombined, Code2, Github, Globe, GraduationCap, Linkedin, ScanLine } from 'lucide-react';
 import styles from './developers.module.css';
 
 export const metadata: Metadata = {
   title: 'Desenvolvedores',
-  description: 'Conheça Mariana da Costa Lisboa e Genisson Emilio dos Santos, desenvolvedores do SIRENIA, e explore seus portfólios e projetos.',
+  description: 'Conheça os desenvolvedores Mariana da Costa Lisboa e Genisson Emilio dos Santos e o professor Rubens Matos Junior. Explore seus perfis e projetos públicos.',
 };
 
 const developers = [
@@ -67,8 +67,8 @@ export default function DevelopersPage() {
 
     <section id="equipe" aria-labelledby="team-title" className={styles.team}>
       <div className={styles.sectionHeading}>
-        <div><span className={styles.sectionEyebrow}>NOSSA EQUIPE</span><h2 id="team-title">Dois olhares, um projeto em comum.</h2></div>
-        <p>Explore os portfólios e conheça outros trabalhos dos desenvolvedores.</p>
+        <div><span className={styles.sectionEyebrow}>NOSSA EQUIPE</span><h2 id="team-title">Tecnologia e educação em comum.</h2></div>
+        <p>Conheça os desenvolvedores, o professor e seus projetos públicos.</p>
       </div>
 
       <div className={styles.cards}>
@@ -102,6 +102,37 @@ export default function DevelopersPage() {
           </div>
         </article>)}
       </div>
+
+      <article className={`${styles.card} ${styles.professorCard}`} aria-labelledby="rubens-name">
+        <div className={styles.professorPresentation}>
+          <div className={styles.identity}>
+            <div className={styles.avatar} aria-hidden="true">RM</div>
+            <span className={styles.identityIcon} aria-hidden="true"><GraduationCap size={24}/></span>
+          </div>
+          <span className={styles.role}>PROFESSOR</span>
+          <h3 id="rubens-name">Rubens Matos Junior</h3>
+          <p className={styles.area}>Instituto Federal de Sergipe · Campus Lagarto</p>
+          <p className={styles.description}>Professor do IFS com projetos públicos de automação e extração de dados em Python. Seu perfil no GitHub também reúne trabalhos ligados aos sistemas acadêmicos da instituição.</p>
+          <ul className={styles.technologies} aria-label="Áreas e tecnologias de Rubens Matos Junior">
+            <li>Educação</li><li>Python</li><li>Automação</li><li>Extração de dados</li>
+          </ul>
+        </div>
+        <div className={styles.professorLinks}>
+          <div className={styles.project}>
+            <span className={styles.projectLabel}>PROJETO PARA CONHECER</span>
+            <a href="https://github.com/rubensmatosjr/sigscraping" target="_blank" rel="noopener noreferrer" aria-label="Conhecer sigscraping no GitHub, em nova aba">
+              sigscraping<ArrowUpRight size={17} aria-hidden="true"/>
+            </a>
+            <p>Scripts para extração automatizada de dados dos sistemas SIG utilizados pelo IFS.</p>
+          </div>
+          <a className={styles.portfolio} href="https://github.com/rubensmatosjr" target="_blank" rel="noopener noreferrer" aria-label="Ver projetos de Rubens Matos Junior no GitHub, em nova aba">
+            <Github size={18} aria-hidden="true"/>Ver projetos no GitHub<ArrowUpRight size={17} aria-hidden="true"/>
+          </a>
+          <div className={styles.socials}>
+            <a href="https://www.linkedin.com/in/rubensmatos/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn de Rubens Matos Junior, em nova aba"><Linkedin size={17} aria-hidden="true"/>LinkedIn</a>
+          </div>
+        </div>
+      </article>
     </section>
 
     <section className={styles.mission} aria-labelledby="mission-title">
@@ -109,6 +140,6 @@ export default function DevelopersPage() {
       <div><h2 id="mission-title">Mais tempo para ensinar. Mais clareza para acompanhar.</h2><p>O SIRENIA reúne leitura de cartões de respostas, revisão pelo professor e desempenho por área em um só lugar. A tecnologia apoia a correção; o professor acompanha e revisa cada resultado.</p></div>
       <Link href="/" className={styles.returnLink}>Acessar o SIRENIA<ArrowUpRight size={17} aria-hidden="true"/></Link>
     </section>
-    <p className={styles.sourceNote}>Apresentações baseadas nos portfólios e projetos públicos dos desenvolvedores. Os links externos abrem em uma nova aba.</p>
+    <p className={styles.sourceNote}>Apresentações baseadas nos portfólios e perfis públicos da equipe. Os links externos abrem em uma nova aba.</p>
   </div>;
 }

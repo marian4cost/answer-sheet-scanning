@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileCheck2, Upload, ArrowRight, Eye, Trash2, Clock3, Plus, Files, ScanLine } from 'lucide-react';
+import { FileCheck2, Upload, ArrowRight, Eye, Trash2, Clock3, Plus, Files, ScanLine, Share2 } from 'lucide-react';
 import type { AnswerKey, DashboardData, Simulado, ThemeRange } from '@enem/shared';
 import { useResource } from '@/lib/use-resource';
 import { api, ACCEPT, FORMAT_TEXT, validateFiles, errorMessage, dateText } from '@/lib/api';
@@ -45,9 +45,11 @@ export function Dashboard() {
       setKey(reading.respostas_detectadas);
     } catch (error) { setFormError(errorMessage(error)); } finally { setBusy(false); }
   }
+  const owned = data?.simulados.filter(simulado=>simulado.acesso!=='compartilhado')||[];
+  const received = data?.simulados.filter(simulado=>simulado.acesso==='compartilhado')||[];
   return <>
-    <div className="page-heading"><div><span className="eyebrow">PAINEL DE CORREÇÃO</span><h1>Seus simulados</h1><p>Cadastre o gabarito oficial e acompanhe todas as provas da turma.</p></div><div className="summary-pill"><Files size={18}/><strong>{data?.total_provas ?? '—'}</strong> provas armazenadas</div></div>
-    {data?.retencao_dias && <Alert>Seus simulados, contatos e histórico são privados desta conta. Os simulados são excluídos automaticamente após {data.retencao_dias || 90} dias do cadastro. Baixe as planilhas e os boletins antes do vencimento.</Alert>}
+    <div className="page-heading"><div><span className="eyebrow">PAINEL DE CORREÇÃO</span><h1>Seus simulados</h1><p>Cadastre o gabarito oficial, acompanhe a turma e consulte os simulados compartilhados com você.</p></div><div className="summary-pill"><Files size={18}/><strong>{data?.total_provas ?? '—'}</strong> provas acessíveis</div></div>
+    {data?.retencao_dias && <Alert>Seu histórico e seus contatos são privados. Somente os simulados que você compartilhar ficam visíveis aos usuários escolhidos. Os simulados são excluídos automaticamente após {data.retencao_dias} dias do cadastro; o compartilhamento mantém esse prazo.</Alert>}
     <div className="dashboard-grid">
       <section className="card create-card"><div className="section-heading"><span className="step">01</span><div><h2>Cadastrar simulado</h2><p>Comece pela folha oficial do professor.</p></div></div>
         <form onSubmit={submit}>
@@ -66,18 +68,24 @@ export function Dashboard() {
           {busy && <Loading text={`Localizando as ${count} questões com OpenCV...`}/>}
         </form>
       </section>
-      <div className="stack"><section className="card"><div className="section-heading between"><h2>Simulados ativos</h2><span className="count">{data?.total_simulados ?? 0}</span></div>
-        {loading ? <Loading/> : error ? <><Alert kind="error">{error}</Alert><button onClick={refresh} className="button outline">Tentar novamente</button></> : !data?.simulados.length ? <Empty>Nenhum simulado cadastrado. Envie a folha oficial para começar.</Empty> :
-          <div className="simulado-list">{data.simulados.map(simulado => <article className="simulado-item" key={simulado.id}>
-            {simulado.expira_em && <p className="help">Disponível até {dateText(simulado.expira_em)}</p>}<div className="simulado-title"><h3>{simulado.titulo}</h3><span>{dateText(simulado.data_criacao)}</span></div>
-            <p className="help"><strong>{simulado.total_provas}</strong> provas · {simulado.total_envios} envios · {simulado.total_questoes} questões</p>
-            {!simulado.gabarito_valido && <span className="status alerta_revisao">Atualize o gabarito oficial</span>}
-            <div className="actions"><Link className="button primary small" href={`/simulado/${simulado.id}/resultados`}>Resultados ({simulado.total_provas})</Link><Link className="button outline small" href={`/simulado/${simulado.id}/boletins`}>Boletins</Link><Link className="button outline small" href={`/simulado/${simulado.id}/upload`}><Plus size={15}/> Adicionar provas</Link><Link className="button icon-button" href={`/simulado/${simulado.id}`} aria-label={`Ver gabarito de ${simulado.titulo}`}><Eye size={17}/></Link><Link className="button danger-outline small" href={`/simulado/${simulado.id}/deletar`} aria-label={`Excluir simulado ${simulado.titulo}`}><Trash2 size={15}/> Excluir</Link></div>
-          </article>)}</div>}
+      <div className="stack"><section className="card"><div className="section-heading between"><h2>Simulados ativos</h2><span className="count">{owned.length}</span></div>
+        {loading ? <Loading/> : error ? <><Alert kind="error">{error}</Alert><button onClick={refresh} className="button outline">Tentar novamente</button></> : !owned.length ? <Empty>Nenhum simulado cadastrado. Envie a folha oficial para começar.</Empty> :
+          <div className="simulado-list">{owned.map(simulado=><SimulationCard key={simulado.id} simulado={simulado}/>)}</div>}
       </section>
+      <section className="card"><div className="section-heading between"><h2><Share2 size={19}/> Compartilhados comigo</h2><span className="count">{received.length}</span></div>{loading?<Loading/>:!received.length?<p className="help">Os simulados compartilhados com sua conta aparecerão aqui. O acesso permite consultar respostas e espelhos, sem editar os resultados.</p>:<div className="simulado-list">{received.map(simulado=><SimulationCard key={simulado.id} simulado={simulado}/>)}</div>}</section>
       <section className="card"><div className="section-heading"><Clock3 size={20}/><h2>Últimos envios</h2></div>
         {!data?.envios_recentes.length ? <p className="help">Os envios da turma aparecerão aqui.</p> : <div className="recent-list">{data.envios_recentes.map(envio => <Link key={envio.id} href={`/lote/${envio.id}`}><span className="recent-number">#{envio.id}</span><div><strong>{envio.titulo}</strong><span>{dateText(envio.criado_em)} · {envio.total_provas} provas</span></div><ArrowRight size={16}/></Link>)}</div>}
       </section></div>
     </div>
   </>;
+}
+function SimulationCard({simulado}:{simulado:Simulado}) {
+  const editable=simulado.pode_editar!==false;
+  return <article className="simulado-item">
+    {simulado.expira_em&&<p className="help">Disponível até {dateText(simulado.expira_em)}</p>}<div className="simulado-title"><h3>{simulado.titulo}</h3><span>{dateText(simulado.data_criacao)}</span></div>
+    {!editable&&<p className="help"><Share2 size={14}/> Compartilhado por {simulado.compartilhado_por?.nome||simulado.compartilhado_por?.email||'outro usuário'} · Somente leitura</p>}
+    <p className="help"><strong>{simulado.total_provas}</strong> provas · {simulado.total_envios} envios · {simulado.total_questoes} questões</p>
+    {!simulado.gabarito_valido&&<span className="status alerta_revisao">{editable?'Atualize o gabarito oficial':'Gabarito indisponível; consulte o responsável'}</span>}
+    <div className="actions"><Link className="button primary small" href={`/simulado/${simulado.id}/resultados`}>Resultados ({simulado.total_provas})</Link>{editable&&<><Link className="button outline small" href={`/simulado/${simulado.id}/boletins`}>Boletins</Link><Link className="button outline small" href={`/simulado/${simulado.id}/upload`}><Plus size={15}/>Adicionar provas</Link></>}<Link className="button icon-button" href={`/simulado/${simulado.id}`} aria-label={`Ver gabarito de ${simulado.titulo}`}><Eye size={17}/></Link>{editable&&<Link className="button danger-outline small" href={`/simulado/${simulado.id}/deletar`} aria-label={`Excluir simulado ${simulado.titulo}`}><Trash2 size={15}/>Excluir</Link>}</div>
+  </article>;
 }

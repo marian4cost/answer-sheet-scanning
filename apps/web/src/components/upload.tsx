@@ -131,6 +131,7 @@ export function UploadView({id}: {id: number}) {
 
   if(loading) return <Loading/>;
   if(error || !data) return <><BackLink/><Alert kind="error">{error || 'Simulado não encontrado.'}</Alert></>;
+  if(data.simulado.pode_editar===false)return <><BackLink/><Alert>Somente o responsável pode adicionar provas. Seu acesso a este simulado é apenas para leitura.</Alert><Link className="button outline" href={`/simulado/${id}/resultados`}>Ver respostas</Link></>;
   return <div className="narrow"><BackLink href={`/simulado/${id}/resultados`}>Voltar aos resultados</BackLink>
     <div className="page-heading"><div><span className="eyebrow">CORREÇÃO DA TURMA</span><h1>Adicionar provas</h1><p>{data.simulado.titulo}</p></div><span className="count">{data.simulado.total_questoes} questões</span></div>
     <section className="card"><div className="stored-info"><div><strong>{data.simulado.total_provas} provas já armazenadas</strong><p>As novas provas serão somadas aos resultados anteriores.</p></div><Link href={`/simulado/${id}/resultados`}>Ver todas as provas →</Link></div>

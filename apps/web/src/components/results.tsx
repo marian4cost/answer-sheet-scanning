@@ -1,23 +1,26 @@
 'use client';
 import { useId, useState } from 'react';
 import Link from 'next/link';
-import { Search, Eye, Upload, Download, Trash2, CheckCircle2, Users, AlertTriangle, BarChart3 } from 'lucide-react';
+import { Search, Eye, Upload, Download, Trash2, CheckCircle2, Users, AlertTriangle, BarChart3, Share2 } from 'lucide-react';
 import type { ResultsData, Resultado } from '@enem/shared';
 import { useResource } from '@/lib/use-resource';
 import { dateText } from '@/lib/api';
 import { Alert, BackLink, Badge, Empty, Loading, Modal } from './ui';
 import { ResultTabs } from './result-tabs';
 import { AnswerReview } from './answer-review';
+import { SharingDialog } from './simulation-sharing';
 
 export function ResultsView({simuladoId, envioId}: {simuladoId?: number; envioId?: number}) {
   const endpoint = envioId ? `/envios/${envioId}` : `/simulados/${simuladoId}/resultados`;
   const {data, loading, error, refresh} = useResource<ResultsData>(endpoint);
   const [search, setSearch] = useState(''), [selected, setSelected] = useState<Resultado | null>(null);
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+  const [sharing,setSharing] = useState(false);
   const tabsId = useId();
   if (loading) return <Loading/>;
   if (error || !data) return <><BackLink/><Alert kind="error">{error || 'Resultados não encontrados.'}</Alert><button className="button outline" onClick={refresh}>Tentar novamente</button></>;
   const {simulado, indicadores: stats, envio} = data;
+  const editable=simulado.pode_editar!==false;
   const themes = [...new Set(simulado.temas.map(range => range.tema))];
   const covered = simulado.temas.reduce((sum, range) => sum + range.fim - range.inicio + 1, 0);
   if (themes.length && covered < simulado.total_questoes && !themes.includes('Sem tema')) themes.push('Sem tema');
@@ -28,14 +31,15 @@ export function ResultsView({simuladoId, envioId}: {simuladoId?: number; envioId
   const filtered = data.resultados.filter(row => row.matricula.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <><BackLink/><div className="page-heading"><div><span className="eyebrow">{envio ? `ENVIO #${envio.id}` : 'TODAS AS PROVAS'}</span><h1>{simulado.titulo}</h1><p>{envio ? `Enviado em ${dateText(envio.criado_em)}` : `${stats.total_provas} provas armazenadas em ${stats.total_envios} envios. Novas provas se somam às anteriores.`}</p></div><div className="actions">
     {envio && <Link className="button primary" href={`/simulado/${simulado.id}/resultados`}>Todas as provas</Link>}
-    <Link className="button outline" href={`/simulado/${simulado.id}/upload`}><Upload size={17}/>Adicionar provas</Link>
-    <Link className="button outline" href={`/simulado/${simulado.id}/boletins`}>Boletins dos alunos</Link>
+    {editable&&<><button type="button" className="button outline" onClick={()=>setSharing(true)}><Share2 size={17}/>Compartilhar</button><Link className="button outline" href={`/simulado/${simulado.id}/upload`}><Upload size={17}/>Adicionar provas</Link>
+    <Link className="button outline" href={`/simulado/${simulado.id}/boletins`}>Boletins dos alunos</Link></>}
     <a className="button success" href={`/api${envio ? `/envios/${envio.id}` : `/simulados/${simulado.id}`}/exportar`}><Download size={17}/>Exportar Excel</a>
-    <Link className="button danger-outline" href={`/simulado/${simulado.id}/deletar`}><Trash2 size={16}/>Excluir simulado</Link>
+    {editable&&<Link className="button danger-outline" href={`/simulado/${simulado.id}/deletar`}><Trash2 size={16}/>Excluir simulado</Link>}
   </div></div>
+    {!editable&&<Alert>Compartilhado por {simulado.compartilhado_por?.nome||simulado.compartilhado_por?.email||'outro usuário'}. Seu acesso permite visualizar respostas e espelhos. Somente o responsável pode alterar este simulado.</Alert>}
     <div className="metrics"><div className="metric"><span><Users size={18}/>Total de provas</span><strong>{stats.total_provas}</strong></div><div className="metric green"><span><BarChart3 size={18}/>Média das notas confirmadas</span><strong>{stats.media_nota.toLocaleString('pt-BR')}%</strong></div><div className="metric amber"><span><AlertTriangle size={18}/>Marcações duplas</span><strong>{stats.rasura_count}</strong></div><div className="metric teal"><span><CheckCircle2 size={18}/>Leituras sem alertas</span><strong>{stats.sucesso_count}</strong></div></div>
     {(stats.revisao_count > 0 || stats.erro_count > 0) && <Alert kind="warning">{stats.revisao_count} provas precisam de revisão e {stats.erro_count} tiveram falha de leitura. Notas com * são provisórias; essas provas não entram na média.</Alert>}
-    {simulado.temas.length > 0 && <section className="card theme-overview"><div className="section-heading between"><h2>Temas do simulado · {simulado.total_questoes} questões</h2><Link className="button outline small" href={`/simulado/${simulado.id}`}>Editar temas</Link></div><div className="theme-list">{simulado.temas.map(range => <span className="theme-tag" key={range.inicio}><strong>{range.inicio}–{range.fim}</strong>{range.tema}</span>)}</div><p className="help">Use as abas da tabela para consultar cada tema. O Excel inclui a nota geral e uma aba para cada tema. Questões fora dos intervalos aparecem como “Sem tema”.</p></section>}
+    {simulado.temas.length > 0 && <section className="card theme-overview"><div className="section-heading between"><h2>Temas do simulado · {simulado.total_questoes} questões</h2><Link className="button outline small" href={`/simulado/${simulado.id}`}>{editable?'Editar temas':'Ver temas'}</Link></div><div className="theme-list">{simulado.temas.map(range => <span className="theme-tag" key={range.inicio}><strong>{range.inicio}–{range.fim}</strong>{range.tema}</span>)}</div><p className="help">Use as abas da tabela para consultar cada tema. O Excel inclui a nota geral e uma aba para cada tema. Questões fora dos intervalos aparecem como “Sem tema”.</p></section>}
     <section className="card"><div className="section-heading between table-heading"><h2>{envio ? 'Provas deste envio' : 'Todas as provas do simulado'}</h2><label className="search"><Search size={17}/><input placeholder="Buscar matrícula..." aria-label="Buscar matrícula" value={search} onChange={event => setSearch(event.target.value)}/></label></div>
       {themes.length > 0 && <ResultTabs id={tabsId} themes={themes} selected={activeTheme} onChange={setSelectedTheme}/>}
       <div id={`${tabsId}-panel`} role={themes.length ? 'tabpanel' : undefined} aria-labelledby={themes.length ? `${tabsId}-tab-${tabIndex}` : undefined} tabIndex={themes.length ? 0 : undefined}>
@@ -51,9 +55,10 @@ export function ResultsView({simuladoId, envioId}: {simuladoId?: number; envioId
       </tbody></table></div>}
       </div>
       {activeTheme !== null && <p className="help table-foot">Acertos, erros, duplas, brancos e questões a revisar correspondem ao tema selecionado. O status se refere à leitura da prova inteira; notas com * são provisórias.</p>}
-      {!themes.length && <p className="help table-foot">Cadastre os <Link href={`/simulado/${simulado.id}`}>intervalos de temas no gabarito</Link> para consultar o desempenho por tema.</p>}
+      {!themes.length && <p className="help table-foot">{editable?<>Cadastre os <Link href={`/simulado/${simulado.id}`}>intervalos de temas no gabarito</Link> para consultar o desempenho por tema.</>:'O responsável ainda não cadastrou os intervalos de temas.'}</p>}
       {data.resultados.length > 0 && <p className="help table-foot">Cada linha corresponde a uma prova armazenada. Reenvios da mesma matrícula são mantidos no histórico.</p>}
     </section>
+    {sharing&&editable&&<SharingDialog id={simulado.id} onClose={()=>setSharing(false)}/>}
     {selected && <Modal title={`Espelho · ${selected.matricula}`} onClose={() => setSelected(null)}><div className="mirror-grid"><aside><div className="mirror-summary"><Badge status={selected.status}/><h3>{selected.status === 'ERRO_LEITURA' ? 'Leitura indisponível' : `${selected.nota_percentual}%${selected.total_incertas ? ' · provisória' : ''}`}</h3><p>Envio #{selected.lote_id} · {dateText(selected.criado_em)}</p><dl><div><dt>Acertos</dt><dd>{selected.total_acertos}/{simulado.total_questoes}</dd></div><div><dt>Erros</dt><dd>{selected.total_erros}</dd></div><div><dt>Marcações duplas</dt><dd>{selected.total_rasuras}</dd></div><div><dt>Em branco</dt><dd>{selected.total_brancos}</dd></div><div><dt>Revisar</dt><dd>{selected.total_incertas}</dd></div></dl></div>
       {selected.mensagem_leitura && <Alert kind="warning">{selected.mensagem_leitura}</Alert>}
       {selected.desempenho_temas.length > 0 && <div className="theme-results"><h4>Acertos por tema</h4>{selected.desempenho_temas.map(theme => <div key={theme.tema}><strong>{theme.tema}</strong><span>{selected.status === 'ERRO_LEITURA' ? 'Leitura indisponível' : `${theme.total_acertos}/${theme.total_questoes} · ${theme.nota_percentual.toLocaleString('pt-BR')}%${selected.total_incertas ? ' (provisório)' : ''}`}</span></div>)}</div>}

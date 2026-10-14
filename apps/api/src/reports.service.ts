@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import type { ReadingStatus, ThemeScore } from '@enem/shared';
 import type { StudentReport, EssayFeedback, ReportArea, ReportList, DeliveryPlan, DeliveryResult, ReportDelivery, ReportQuestion, ReportPriority } from '@enem/shared/src/reports';
+import { formatReportCount, reportInterpretation, reportMethodology } from '@enem/shared/src/report-presentation';
 import { DatabaseService } from './database.service';
 import { SimuladosService } from './simulados.service';
 import { ContactsService, sha256, validEmail } from './contacts.service';
@@ -71,11 +72,12 @@ function areasFromThemes(themes: ThemeScore[], status: ReadingStatus): ReportAre
   });
 }
 export function reportHtml(report: StudentReport, attachment = true): string {
-  const areaRows = report.areas.map(area => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(area.area)}</td><td>${area.total_acertos}/${area.total_questoes}</td><td>${area.nota_dez === null ? (area.total_questoes ? 'Pendente' : 'Sem questões') : area.nota_dez.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' / 10'}</td></tr>`).join('');
-  const overall = report.nota_geral_dez === null ? 'Pendente' : report.nota_geral_dez.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' / 10';
+  const available = report.nota_geral_dez !== null;
+  const areaRows = report.areas.map(area => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(area.area)}</td><td>${formatReportCount(area.total_acertos,area.total_questoes,available&&area.nota_dez!==null)}</td></tr>`).join('');
+  const themes = report.temas.length ? `<h3>Acertos por tema</h3><table style="width:100%;text-align:left"><thead><tr><th>Tema</th><th>Acertos</th></tr></thead><tbody>${report.temas.map(theme=>`<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">${escapeHtml(theme.tema)}</td><td>${formatReportCount(theme.total_acertos,theme.total_questoes,available)}</td></tr>`).join('')}</tbody></table>` : '';
   const priorities = attachment ? '' : `<h3>Prioridades de revisão</h3>${report.prioridades.map(p => `<p><strong>${escapeHtml(p.area)}</strong>: incorretas ${p.incorretas.join(', ') || 'nenhuma'}; em branco ${p.brancos.join(', ') || 'nenhuma'}; marcações duplas ${p.duplas.join(', ') || 'nenhuma'}; incertas ${p.incertas.join(', ') || 'nenhuma'}.</p>`).join('')}`;
   const detail = attachment ? '<p>O boletim completo está no PDF em anexo.</p>' : `<h3>Questões</h3><table style="width:100%;text-align:left"><thead><tr><th>Questão</th><th>Área/tema</th><th>Resposta</th><th>Gabarito</th><th>Resultado</th></tr></thead><tbody>${report.questoes.map(q => `<tr><td>${q.numero}</td><td>${escapeHtml(q.tema)}</td><td>${escapeHtml(q.resposta)}</td><td>${escapeHtml(q.gabarito)}</td><td>${escapeHtml(q.resultado)}</td></tr>`).join('')}</tbody></table><p>O professor pode fornecer a versão em PDF pelo site.</p>`;
-  return `<!doctype html><html lang="pt-BR"><body style="font:15px Arial,sans-serif;color:#172033"><main style="max-width:680px;margin:24px auto"><p style="color:#2563eb">${escapeHtml(INSTITUTION())}</p><h1>Boletim individual</h1><h2>${escapeHtml(report.titulo)}</h2><p>Olá, ${escapeHtml(report.nome)}.</p><p>Matrícula: <strong>${escapeHtml(report.matricula)}</strong> | Curso: ${escapeHtml(report.curso || 'Não informado')}</p><p>Nota objetiva: <strong>${overall}</strong> (${report.geral.total_acertos} de ${report.total_questoes} questões).</p><table style="width:100%;text-align:left"><thead><tr><th>Área</th><th>Acertos</th><th>Nota</th></tr></thead><tbody>${areaRows}</tbody></table><h3>Leitura do resultado</h3><p>${escapeHtml(report.interpretacao)}</p>${priorities}<h3>Redação - avaliação manual</h3><p>Nota: ${report.redacao.nota_redacao === null ? 'Não informada' : report.redacao.nota_redacao + ' / 1000'}</p><p style="white-space:pre-wrap">${escapeHtml(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.')}</p>${detail}<p style="font-size:12px;color:#64748b">${escapeHtml(report.metodologia)}</p></main></body></html>`;
+  return `<!doctype html><html lang="pt-BR"><body style="font:15px Arial,sans-serif;color:#172033"><main style="max-width:680px;margin:24px auto"><p style="color:#2563eb">${escapeHtml(INSTITUTION())}</p><h1>Boletim individual</h1><h2>${escapeHtml(report.titulo)}</h2><p>Olá, ${escapeHtml(report.nome)}.</p><p>Matrícula: <strong>${escapeHtml(report.matricula)}</strong> | Curso: ${escapeHtml(report.curso || 'Não informado')}</p><table style="width:100%;text-align:left"><thead><tr><th>Área</th><th>Acertos</th></tr></thead><tbody>${areaRows}</tbody></table>${themes}<h3>Leitura do resultado</h3><p>${escapeHtml(reportInterpretation(report))}</p>${priorities}<h3>Redação - avaliação manual</h3><p>Nota: ${report.redacao.nota_redacao === null ? 'Não informada' : report.redacao.nota_redacao + ' / 1000'}</p><p style="white-space:pre-wrap">${escapeHtml(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.')}</p>${detail}<p style="font-size:12px;color:#64748b">${escapeHtml(reportMethodology())}</p></main></body></html>`;
 }
 
 @Injectable()
@@ -136,7 +138,7 @@ export class ReportsService {
     if (rows.length !== ids.length) throw new BadRequestException('Uma prova deste plano foi removida ou não pertence ao seu simulado. Revise um novo plano.');
   }
   async report(id: number): Promise<StudentReport> {
-    const {resultado, simulado} = await this.simulados.result(id);
+    const {resultado, simulado} = await this.simulados.resultOwned(id);
     const contact = await this.contacts.get(resultado.matricula);
     const feedback = await this.db.get<Omit<EssayFeedback,'competencias_redacao'> & {competencias_redacao?: string}>('SELECT nota_redacao,feedback_redacao,competencias_redacao,avaliador_redacao,situacao_redacao,origem_redacao,atualizado_em FROM report_feedback WHERE resultado_id=?', id);
     let competencies: number[] = [];
@@ -190,12 +192,13 @@ export class ReportsService {
     return report;
   }
   async list(simuladoId: number): Promise<ReportList> {
+    await this.simulados.get(simuladoId);
     const data = await this.simulados.results(simuladoId);
     const rows = await Promise.all(data.resultados.map(row => this.report(row.id)));
     return {simulado_id: simuladoId, titulo: data.simulado.titulo, total: rows.length, ...this.email.availability(),
       alunos: rows.map(row => ({resultado_id: row.resultado_id, matricula: row.matricula, nome: row.nome, email: row.email,
         nota_percentual: row.status === 'ERRO_LEITURA' ? null : row.geral.nota_percentual, status: row.status, pendencias: row.pendencias,
-        avisos: row.avisos, apto_envio: row.apto_envio, redacao: row.redacao, temas: row.temas}))};
+        avisos: row.avisos, apto_envio: row.apto_envio, redacao: row.redacao, temas: row.temas, correcao_disponivel:row.nota_geral_dez!==null}))};
   }
   async saveEssay(id: number, raw: unknown): Promise<StudentReport> {
     const existing = await this.report(id);
@@ -306,8 +309,8 @@ export class ReportsService {
     return {total_enviados: sent, total_ignorados: ignored, resultados: results};
   }
   async send(simuladoId: number, token: unknown, confirmation: unknown): Promise<DeliveryResult> {
-    if (confirmation !== 'sim' || typeof token !== 'string' || !ACCESS_TOKEN_PATTERN.test(token)) throw new BadRequestException('Revise os destinatários e confirme o envio.');
     await this.simulados.get(simuladoId);
+    if (confirmation !== 'sim' || typeof token !== 'string' || !ACCESS_TOKEN_PATTERN.test(token)) throw new BadRequestException('Revise os destinatários e confirme o envio.');
     const availability = this.email.availability();
     if (!availability.envio_disponivel) throw new ServiceUnavailableException(availability.envio_motivo);
     linkTtl(); accessUrl(token);
@@ -357,8 +360,8 @@ export class ReportsService {
     return {token,simulado_id:simuladoId,alunos:[record],total:1,expira_em:expiry, ...this.email.availability(),reemissao:true,delivery_id:row.id};
   }
   async reissue(simuladoId: number, token: unknown, confirmation: unknown): Promise<DeliveryResult> {
-    if (confirmation !== 'sim' || typeof token !== 'string' || !ACCESS_TOKEN_PATTERN.test(token)) throw new BadRequestException('Revise o destinatário e confirme a reemissão do link.');
     await this.simulados.get(simuladoId);
+    if (confirmation !== 'sim' || typeof token !== 'string' || !ACCESS_TOKEN_PATTERN.test(token)) throw new BadRequestException('Revise o destinatário e confirme a reemissão do link.');
     const availability = this.email.availability();
     if (!availability.envio_disponivel) throw new ServiceUnavailableException(availability.envio_motivo);
     linkTtl(); accessUrl(token);

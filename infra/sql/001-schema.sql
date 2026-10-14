@@ -151,6 +151,21 @@ CREATE TABLE IF NOT EXISTS answer_review_events (
 );
 ALTER TABLE answer_review_events ADD COLUMN IF NOT EXISTS revisor_nome TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS answer_reviews_result ON answer_review_events(resultado_id,versao);
+CREATE TABLE IF NOT EXISTS simulado_shares (
+  id TEXT PRIMARY KEY,
+  simulado_id INTEGER NOT NULL REFERENCES core_simulado(id) ON DELETE CASCADE,
+  owner_id TEXT NOT NULL,
+  destinatario_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  nome TEXT NOT NULL DEFAULT '',
+  proprietario_email TEXT NOT NULL,
+  proprietario_nome TEXT NOT NULL DEFAULT '',
+  criado_em TEXT NOT NULL,
+  CHECK(owner_id<>destinatario_id),
+  UNIQUE(simulado_id,destinatario_id)
+);
+CREATE INDEX IF NOT EXISTS simulado_shares_recipient ON simulado_shares(destinatario_id,simulado_id);
+ALTER TABLE simulado_shares ENABLE ROW LEVEL SECURITY;
 ALTER TABLE account_admin_locks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE answer_review_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage_deletions ENABLE ROW LEVEL SECURITY;
@@ -174,7 +189,7 @@ DECLARE role_name TEXT;
 BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
-      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages, storage_deletions, account_admin_locks, answer_review_events FROM %I', role_name);
+      EXECUTE format('REVOKE ALL ON TABLE core_simulado, core_lotecorrecao, core_resultadoaluno, student_contacts, report_feedback, report_deliveries, report_delivery_plans, contacts_import_plans, uploaded_files, email_provider_slots, auth_attempt_limits, essay_import_plans, report_access_links, proof_import_plans, proof_import_pages, storage_deletions, account_admin_locks, answer_review_events, simulado_shares FROM %I', role_name);
     END IF;
   END LOOP;
 END $$;

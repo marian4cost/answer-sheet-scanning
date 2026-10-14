@@ -2,6 +2,7 @@ import { Injectable, Inject, Optional } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import type { ResultsData } from '@enem/shared';
 import { DatabaseService } from './database.service';
+import { accountId } from './account-context';
 
 function styleTable(sheet: ExcelJS.Worksheet) {
   sheet.getRow(1).font = {bold: true, color: {argb: 'FFFFFFFF'}};
@@ -35,11 +36,13 @@ function questionIntervals(questions: number[]): string {
 export class ExportService {
   constructor(@Optional() @Inject(DatabaseService) private readonly db?: DatabaseService) {}
   async create(data: ResultsData): Promise<Buffer> {
+    const owner = data.simulado.acesso === 'proprietario' && data.simulado.pode_editar === true;
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'SIRENIA';
     const sheet = workbook.addWorksheet('Resultados_OMR');
     const columns = ['Matrícula', 'Envio', 'Data_Envio', ...Array.from({length: data.simulado.total_questoes}, (_, i) => `Q${i + 1}`),
-      'Total_Acertos', 'Total_Erros', 'Total_Anuladas', 'Total_Em_Branco', 'Total_Incertas', 'Status', 'Detalhes_Leitura', 'Pontuacao_Percentual', 'Arquivo_Origem', 'Pagina_Origem', 'Fonte_Matricula'];
+      'Total_Acertos', 'Total_Erros', 'Total_Anuladas', 'Total_Em_Branco', 'Total_Incertas', 'Status', 'Detalhes_Leitura', 'Pontuacao_Percentual',
+      ...(owner ? ['Arquivo_Origem', 'Pagina_Origem', 'Fonte_Matricula'] : [])];
     sheet.columns = columns.map(header => ({header, key: header, width: header === 'Detalhes_Leitura' ? 50 : Math.max(12, header.length + 3)}));
     sheet.getRow(1).font = {bold: true, color: {argb: 'FFFFFFFF'}};
     sheet.getRow(1).fill = {type: 'pattern', pattern: 'solid', fgColor: {argb: 'FF2563EB'}};
@@ -51,7 +54,7 @@ export class ExportService {
         'Total_Acertos': r.total_acertos, 'Total_Erros': r.total_erros, 'Total_Anuladas': r.total_rasuras,
         'Total_Em_Branco': r.total_brancos, 'Total_Incertas': r.total_incertas, 'Status': r.status,
         'Detalhes_Leitura': r.mensagem_leitura,
-        'Arquivo_Origem': r.arquivo_origem || '', 'Pagina_Origem': r.pagina_origem || '', 'Fonte_Matricula': r.matricula_fonte || '',
+        ...(owner ? {'Arquivo_Origem': r.arquivo_origem || '', 'Pagina_Origem': r.pagina_origem || '', 'Fonte_Matricula': r.matricula_fonte || ''} : {}),
         'Pontuacao_Percentual': r.status === 'ERRO_LEITURA' ? 'ERRO_LEITURA' : `${r.nota_percentual}%${r.total_incertas ? ' (provisória)' : ''}`,
       };
       for (let q = 1; q <= data.simulado.total_questoes; q++) {
@@ -105,9 +108,14 @@ export class ExportService {
         styleTable(tab);
       }
     }
-    if (this.db && data.resultados.length) {
+    // O compartilhamento concede somente a correção objetiva. Não consulte
+    // avaliações de redação para destinatários, nem grave esses dados ocultos no XLSX.
+    if (this.db && owner && data.resultados.length) {
       const ids=data.resultados.map(result=>result.id);
-      const feedback=await this.db.all<{resultado_id:number;nota_redacao:number|null;feedback_redacao:string;competencias_redacao:string;avaliador_redacao:string;situacao_redacao:string;origem_redacao:string}>(`SELECT * FROM report_feedback WHERE resultado_id IN (${ids.map(()=>'?').join(',')})`,...ids);
+      const feedback=await this.db.all<{resultado_id:number;nota_redacao:number|null;feedback_redacao:string;competencias_redacao:string;avaliador_redacao:string;situacao_redacao:string;origem_redacao:string}>(`SELECT f.* FROM report_feedback f
+        JOIN core_resultadoaluno r ON r.id=f.resultado_id JOIN core_lotecorrecao l ON l.id=r.lote_id
+        JOIN core_simulado s ON s.id=l.simulado_id WHERE s.id=? AND s.owner_id=? AND (s.expira_em IS NULL OR s.expira_em>?)
+        AND r.id IN (${ids.map(()=>'?').join(',')})`, data.simulado.id, accountId(), new Date().toISOString(), ...ids);
       const byResult=new Map(feedback.map(row=>[row.resultado_id,row]));
       const essays=workbook.addWorksheet('Redacoes');
       essays.columns=['Matrícula','Envio','Resultado','Competência 1','Competência 2','Competência 3','Competência 4','Competência 5','Nota Redação','Avaliador','Situação do Texto','Observações e Feedback','Origem'].map(header=>({header,width:header==='Observações e Feedback'?70:header==='Avaliador'?35:24}));

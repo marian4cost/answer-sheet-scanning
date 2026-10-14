@@ -18,7 +18,7 @@ export interface StudentReport {
 export interface ReportListRow {
   resultado_id: number; matricula: string; nome: string; email: string | null;
   nota_percentual: number | null; status: ReadingStatus; pendencias: string[]; avisos: string[];
-  apto_envio: boolean; redacao: EssayFeedback; temas: ThemeScore[];
+  apto_envio: boolean; redacao: EssayFeedback; temas: ThemeScore[]; correcao_disponivel?: boolean;
 }
 export interface ReportList {
   simulado_id: number; titulo: string; envio_disponivel: boolean; envio_motivo: string;

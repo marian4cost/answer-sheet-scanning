@@ -18,5 +18,7 @@ import { ProofImportController } from './proof-import.controller';
 import { ProofImportService } from './proof-import.service';
 import { AccountsController } from './accounts.controller';
 import { AccountsService } from './accounts.service';
-@Module({controllers: [AppController, UploadsController, ReportsController, AuthController, EssayImportController, ProofImportController, AccountsController], providers: [DatabaseService, SimuladosService, OmrService, ExportService, StorageService, UploadsService, ContactsService, ReportsService, ReportEmailGateway, AuthService, EmailJsService, EssayImportService, ProofImportService, AccountsService]})
+import { SimuladoSharesController } from './simulado-shares.controller';
+import { SimuladoSharesService } from './simulado-shares.service';
+@Module({controllers: [AppController, UploadsController, ReportsController, AuthController, EssayImportController, ProofImportController, AccountsController, SimuladoSharesController], providers: [DatabaseService, SimuladosService, OmrService, ExportService, StorageService, UploadsService, ContactsService, ReportsService, ReportEmailGateway, AuthService, EmailJsService, EssayImportService, ProofImportService, AccountsService, SimuladoSharesService]})
 export class AppModule {}

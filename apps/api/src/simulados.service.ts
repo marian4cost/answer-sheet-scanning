@@ -11,7 +11,9 @@ import { grade, gradeThemes, indicators, invalidQuestions } from './grading';
 import { questionCount, themeRanges } from './question-config';
 import { accountId, currentAccount, dataExpiry, retentionDays, withAccount } from './account-context';
 
-type SimuladoRow = Omit<Simulado, 'gabarito_oficial' | 'gabarito_valido' | 'temas'> & {gabarito_oficial: string; temas: string; owner_id: string};
+type SimuladoRow = Omit<Simulado, 'gabarito_oficial' | 'gabarito_valido' | 'temas' | 'acesso' | 'pode_editar' | 'compartilhado_por'> & {
+  gabarito_oficial: string; temas: string; owner_id: string; proprietario_nome?: string | null; proprietario_email?: string | null;
+};
 type ResultRow = Omit<Resultado, 'respostas_detectadas' | 'gabarito_do_envio' | 'desempenho_temas'> & {respostas_detectadas: string; gabarito_snapshot: string};
 type ReviewRow = Omit<AnswerReviewEvent, 'respostas_antes' | 'respostas_depois' | 'alteracoes' | 'questoes_revisadas'> & {
   resultado_id: number; respostas_antes: string; respostas_depois: string; alteracoes: string; questoes_revisadas: string;
@@ -19,6 +21,8 @@ type ReviewRow = Omit<AnswerReviewEvent, 'respostas_antes' | 'respostas_depois' 
 type ReviewedResultRow = ResultRow & {revisao_versao?: number | null; revisao_respostas?: string | null; revisao_status?: ReadingStatus | null; revisao_questoes?: string | null};
 const SIMULADO_SQL = `SELECT s.*, (SELECT CAST(COUNT(*) AS INTEGER) FROM core_lotecorrecao l JOIN core_resultadoaluno r ON r.lote_id=l.id WHERE l.simulado_id=s.id) total_provas,
   (SELECT CAST(COUNT(*) AS INTEGER) FROM core_lotecorrecao l WHERE l.simulado_id=s.id) total_envios FROM core_simulado s`;
+const READABLE_SIMULADO_SQL = SIMULADO_SQL.replace('SELECT s.*,', 'SELECT s.*, c.proprietario_nome,c.proprietario_email,') +
+  ' LEFT JOIN simulado_shares c ON c.simulado_id=s.id AND c.owner_id=s.owner_id AND c.destinatario_id=?';
 const ENVIO_SQL = `SELECT l.id, l.simulado_id, l.criado_em, s.titulo, CAST(COUNT(r.id) AS INTEGER) total_provas
   FROM core_lotecorrecao l JOIN core_simulado s ON s.id=l.simulado_id LEFT JOIN core_resultadoaluno r ON r.lote_id=l.id`;
 const RESULT_SQL = `SELECT r.*, l.criado_em, l.gabarito_snapshot, v.versao AS revisao_versao,
@@ -30,9 +34,12 @@ function dateISO(value: string) {
 }
 function simuladoDTO(row: SimuladoRow): Simulado {
   const key = JSON.parse(row.gabarito_oficial) as AnswerKey;
-  const {owner_id, ...publicRow} = row;
+  const {owner_id, proprietario_nome, proprietario_email, ...publicRow} = row;
+  const editable = owner_id === accountId();
   return {...publicRow, temas: JSON.parse(row.temas), data_criacao: dateISO(row.data_criacao), gabarito_oficial: key,
-    gabarito_valido: Object.keys(key).length === row.total_questoes && invalidQuestions(key, row.total_questoes).length === 0};
+    gabarito_valido: Object.keys(key).length === row.total_questoes && invalidQuestions(key, row.total_questoes).length === 0,
+    acesso: editable ? 'proprietario' : 'compartilhado', pode_editar: editable,
+    ...(!editable ? {compartilhado_por:{nome:proprietario_nome || '',email:proprietario_email || ''}} : {})};
 }
 function envioDTO(row: Envio): Envio { return {...row, criado_em: dateISO(row.criado_em)}; }
 function reviewDTO(row: ReviewRow): AnswerReviewEvent {
@@ -41,7 +48,8 @@ function reviewDTO(row: ReviewRow): AnswerReviewEvent {
     respostas_depois: JSON.parse(row.respostas_depois), alteracoes: JSON.parse(row.alteracoes), questoes_revisadas: JSON.parse(row.questoes_revisadas)};
 }
 function resultDTO(row: ReviewedResultRow, simulado: Simulado): Resultado {
-  const {gabarito_snapshot, revisao_versao, revisao_respostas, revisao_status, revisao_questoes, ...rest} = row;
+  const {gabarito_snapshot, revisao_versao, revisao_respostas, revisao_status, revisao_questoes,
+    arquivo_origem, pagina_origem, matricula_fonte, ...rest} = row;
   const original: AnswerKey = JSON.parse(row.respostas_detectadas), key: AnswerKey = JSON.parse(gabarito_snapshot);
   const answers: AnswerKey = revisao_respostas ? JSON.parse(revisao_respostas) : original;
   const status = revisao_status || row.status;
@@ -51,6 +59,7 @@ function resultDTO(row: ReviewedResultRow, simulado: Simulado): Resultado {
     : status === 'ALERTA_REVISAO' ? 'Há respostas incertas ainda não conferidas. A nota permanece provisória.'
     : `Leitura conferida pelo professor (revisão ${revisao_versao}). A imagem mostra a leitura original.`;
   return {...rest, ...(revisao_versao ? grade(answers, key, status, simulado.total_questoes) : {}), status, mensagem_leitura: message,
+    ...(simulado.pode_editar ? {arquivo_origem, pagina_origem, matricula_fonte} : {}),
     respostas_detectadas: answers, respostas_originais: original, status_original: row.status,
     mensagem_leitura_original: row.mensagem_leitura, revisao_versao: revisao_versao || 0, questoes_revisadas: reviewed,
     gabarito_do_envio: key, criado_em: dateISO(row.criado_em),
@@ -62,7 +71,7 @@ function resultDTO(row: ReviewedResultRow, simulado: Simulado): Resultado {
 export class SimuladosService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService, @Inject(OmrService) private readonly omr: OmrService, @Inject(StorageService) private readonly storage: StorageService) {}
   async dashboard(): Promise<DashboardData> {
-    const simulados = (await this.db.all<SimuladoRow>(SIMULADO_SQL + ' WHERE s.owner_id=? AND (s.expira_em IS NULL OR s.expira_em>?) ORDER BY s.data_criacao DESC, s.id DESC', accountId(), new Date().toISOString())).map(simuladoDTO);
+    const simulados = (await this.db.all<SimuladoRow>(READABLE_SIMULADO_SQL + ' WHERE (s.owner_id=? OR c.id IS NOT NULL) AND (s.expira_em IS NULL OR s.expira_em>?) ORDER BY s.data_criacao DESC, s.id DESC', accountId(), accountId(), new Date().toISOString())).map(simuladoDTO);
     const envios = (await this.db.all<Envio>(ENVIO_SQL + ' WHERE s.owner_id=? AND (s.expira_em IS NULL OR s.expira_em>?) GROUP BY l.id, l.simulado_id, l.criado_em, s.titulo ORDER BY l.criado_em DESC, l.id DESC LIMIT 10', accountId(), new Date().toISOString())).map(envioDTO);
     return {simulados, envios_recentes: envios, total_simulados: simulados.length, total_provas: simulados.reduce((sum, s) => sum + s.total_provas, 0), retencao_dias: retentionDays()};
   }
@@ -71,8 +80,14 @@ export class SimuladosService {
     if (!row) throw new NotFoundException('Simulado não encontrado.');
     return simuladoDTO(row);
   }
+  /** Consulta acadêmica somente leitura. Todas as mutações continuam usando get, exclusivo do dono. */
+  async getReadable(id: number): Promise<Simulado> {
+    const row = await this.db.get<SimuladoRow>(READABLE_SIMULADO_SQL + ' WHERE s.id=? AND (s.owner_id=? OR c.id IS NOT NULL) AND (s.expira_em IS NULL OR s.expira_em>?)', accountId(), id, accountId(), new Date().toISOString());
+    if (!row) throw new NotFoundException('Simulado não encontrado.');
+    return simuladoDTO(row);
+  }
   async detail(id: number): Promise<SimuladoDetail> {
-    return {simulado: await this.get(id), envios: (await this.db.all<Envio>(ENVIO_SQL + ' WHERE l.simulado_id=? GROUP BY l.id, l.simulado_id, l.criado_em, s.titulo ORDER BY l.criado_em DESC, l.id DESC', id)).map(envioDTO)};
+    return {simulado: await this.getReadable(id), envios: (await this.db.all<Envio>(ENVIO_SQL + ' WHERE l.simulado_id=? GROUP BY l.id, l.simulado_id, l.criado_em, s.titulo ORDER BY l.criado_em DESC, l.id DESC', id)).map(envioDTO)};
   }
   private async cleanup(files: Express.Multer.File[]) {
     await Promise.all(files.map(file => rm(file.path, {force: true})));
@@ -166,7 +181,7 @@ export class SimuladosService {
     return this.get(id);
   }
   async results(id: number): Promise<ResultsData> {
-    const simulado = await this.get(id);
+    const simulado = await this.getReadable(id);
     const resultados = (await this.db.all<ResultRow>(RESULT_SQL + ' WHERE l.simulado_id=? ORDER BY r.matricula, l.criado_em DESC, r.id DESC', id)).map(row => resultDTO(row, simulado));
     return {simulado, resultados, indicadores: indicators(resultados, simulado.total_envios), envio: null};
   }
@@ -174,7 +189,7 @@ export class SimuladosService {
     const row = await this.db.get<Envio>(ENVIO_SQL + ' WHERE l.id=? GROUP BY l.id, l.simulado_id, l.criado_em, s.titulo', id);
     if (!row) throw new NotFoundException('Envio não encontrado.');
     const envio = envioDTO(row);
-    const simulado = await this.get(envio.simulado_id);
+    const simulado = await this.getReadable(envio.simulado_id);
     const resultados = (await this.db.all<ResultRow>(RESULT_SQL + ' WHERE l.id=? ORDER BY r.matricula,r.id', id)).map(row => resultDTO(row, simulado));
     return {simulado, resultados, indicadores: indicators(resultados, 1), envio};
   }
@@ -182,15 +197,22 @@ export class SimuladosService {
     const row = await this.db.get<ResultRow>(RESULT_SQL + ' WHERE r.id=?', id);
     if (!row) throw new NotFoundException('Resultado não encontrado.');
     const simuladoId = (await this.db.get<{simulado_id: number}>('SELECT simulado_id FROM core_lotecorrecao WHERE id=?', row.lote_id))!.simulado_id;
-    const simulado = await this.get(simuladoId);
+    const simulado = await this.getReadable(simuladoId);
     const revisoes = (await this.db.all<ReviewRow>('SELECT * FROM answer_review_events WHERE resultado_id=? ORDER BY versao DESC', id)).map(reviewDTO);
     return {resultado: {...resultDTO(row, simulado), revisoes}, simulado};
+  }
+  /** Relatórios, redações e revisão manual nunca herdam uma autorização de leitura compartilhada. */
+  async resultOwned(id: number): Promise<{resultado: Resultado; simulado: Simulado}> {
+    const row = await this.db.get<{simulado_id:number}>('SELECT l.simulado_id FROM core_resultadoaluno r JOIN core_lotecorrecao l ON l.id=r.lote_id WHERE r.id=?', id);
+    if (!row) throw new NotFoundException('Resultado não encontrado.');
+    await this.get(row.simulado_id);
+    return this.result(id);
   }
   async reviewAnswers(id: number, input: unknown): Promise<{resultado: Resultado; simulado: Simulado}> {
     const reviewer = accountId();
     const reviewerName = currentAccount().nome || currentAccount().email;
     // Authorize before validating details so an unrelated account cannot probe this proof.
-    const authorized = await this.result(id);
+    const authorized = await this.resultOwned(id);
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Informe as questões conferidas e o motivo da revisão.');
     const body = input as Record<string, unknown>;
     if (Object.keys(body).some(name => !['versao_esperada', 'respostas', 'motivo'].includes(name))) throw new BadRequestException('A revisão aceita somente respostas, motivo e versão esperada.');
@@ -207,7 +229,7 @@ export class SimuladosService {
     try {
       await this.db.transaction(async () => {
         if (this.db.dialect === 'postgres') await this.db.get('SELECT id FROM core_resultadoaluno WHERE id=? FOR UPDATE', id);
-        const {resultado, simulado} = await this.result(id);
+        const {resultado, simulado} = await this.resultOwned(id);
         if ((resultado.revisao_versao || 0) !== body.versao_esperada) throw new ConflictException('Outra revisão foi salva após abrir esta prova. Atualize o espelho e confira novamente suas alterações.');
         const active = await this.db.get<{total: number}>(`SELECT COUNT(*) total FROM report_deliveries WHERE resultado_id=?
           AND status='ENVIANDO' AND COALESCE(tentativa_em,criado_em)>?`, id, new Date(Date.now() - 120_000).toISOString());

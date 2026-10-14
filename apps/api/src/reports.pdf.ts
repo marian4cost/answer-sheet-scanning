@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import type { StudentReport, ReportQuestion } from '@enem/shared/src/reports';
+import { formatReportCount, reportInterpretation, reportMethodology, reportAdditionalThemes } from '@enem/shared/src/report-presentation';
 import { assetPath } from './assets';
 
 const NAVY = '#18334f', BLUE = '#2563eb', INK = '#28384c', MUTED = '#657b97', LINE = '#d3dde8';
@@ -7,7 +8,6 @@ const AREA_COLORS = ['#2669d5', '#169678', '#8b5fc9', '#17865f'];
 const LABEL: Record<ReportQuestion['resultado'], string> = {CORRETA:'CORRETA', INCORRETA:'INCORRETA', BRANCO:'BRANCO', DUPLA:'DUPLA', INCERTA:'INCERTA', PENDENTE:'PENDENTE'};
 const STATE_FILL: Record<ReportQuestion['resultado'], string> = {CORRETA:'#e5f4ee', INCORRETA:'#fbecec', BRANCO:'#fff4dc', DUPLA:'#fff4dc', INCERTA:'#fff4dc', PENDENTE:'#edf1f6'};
 const clean = (value: string) => value.replace(/[\u2010-\u2015]/g, '-').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
-const note = (value: number | null) => value === null ? 'Pendente' : value.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
 const answer = (value: string) => ({BNK:'-',RAS:'Dupla',INC:'Incerta','—':'-'}[value] || value);
 
 /** Render from the reviewed result and historical answer key; never changes grading. */
@@ -59,14 +59,26 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     const metaW=width/3, valueHeight=Math.max(...meta.map(([,v])=>height(v,metaW-12,9)));
     meta.forEach(([label,value],i)=>{const x=left+i*metaW;doc.rect(x,y,metaW,20).fillAndStroke('#f2f5f8',LINE);doc.rect(x,y+20,metaW,valueHeight+14).stroke(LINE);text(label,x+6,y+5,metaW-12,8,NAVY,true);text(value,x+6,y+26,metaW-12);});
     y+=valueHeight+43;
-    heading('Resumo de desempenho');
-    const cards=[...report.areas.map((area,i)=>({label:area.area,value:area.nota_dez,detail:area.total_questoes?`${area.total_acertos} acertos em ${area.total_questoes} questões`:'Sem questões nesta avaliação',color:AREA_COLORS[i]})),{label:'Resultado geral',value:report.nota_geral_dez,detail:`${report.geral.total_acertos} acertos em ${report.total_questoes} questões`,color:NAVY}];
-    const gap=10,cardW=(width-gap*2)/3,cardH=68;
-    ensure(cardH*2+gap+15);
-    cards.forEach((card,i)=>{const x=left+(i%3)*(cardW+gap),top=y+Math.floor(i/3)*(cardH+gap);doc.rect(x,top,cardW,cardH).stroke(LINE);doc.rect(x,top,cardW,3).fill(card.color);text(card.label.toLocaleUpperCase('pt-BR'),x+8,top+9,cardW-16,7.8,NAVY,true);text(card.value===null && card.label!=='Resultado geral' && card.detail.startsWith('Sem')?'Sem questões':note(card.value)+(card.value===null?'':' / 10'),x+8,top+28,cardW-16,card.value===null?11:17,INK);text(card.detail,x+8,top+54,cardW-16,6.8,MUTED);});
-    y+=cardH*2+gap+12;
-    if (report.status==='ALERTA_REVISAO') paragraph('Nota provisória: existem respostas incertas que precisam ser revistas antes do envio.',8,'#9a6700');
-    heading('Leitura do resultado',height(report.interpretacao,width-18,8.5)+28);boxParagraph(report.interpretacao,'#edf4ff','#bcd3ff',8.5);
+    heading('Acertos por área');
+    const cards=report.areas.map((area,i)=>({label:area.area,value:formatReportCount(area.total_acertos,area.total_questoes,area.nota_dez!==null && report.nota_geral_dez!==null),detail:area.total_questoes?'Acertos / total de questões':'Sem questões nesta avaliação',color:AREA_COLORS[i%AREA_COLORS.length]}));
+    const gap=10,cardW=(width-gap)/2,cardH=68,cardRows=Math.ceil(cards.length/2);
+    ensure(cardH*cardRows+gap*Math.max(cardRows-1,0)+15);
+    cards.forEach((card,i)=>{const x=left+(i%2)*(cardW+gap),top=y+Math.floor(i/2)*(cardH+gap);doc.rect(x,top,cardW,cardH).stroke(LINE);doc.rect(x,top,cardW,3).fill(card.color);text(card.label.toLocaleUpperCase('pt-BR'),x+8,top+9,cardW-16,7.8,NAVY,true);text(card.value,x+8,top+28,cardW-16,card.value==='Pendente' || card.value==='Sem questões'?11:19,INK);text(card.detail,x+8,top+54,cardW-16,6.8,MUTED);});
+    y+=cardH*cardRows+gap*Math.max(cardRows-1,0)+12;
+    const additionalThemes=reportAdditionalThemes(report);
+    if (additionalThemes.length) {
+      heading('Acertos por tema',24);
+      for (const theme of additionalThemes) {
+        const h=Math.max(22,height(theme.tema,width-100,8)+10);ensure(h);
+        doc.rect(left,y,width,h).fillAndStroke('#f8fafc',LINE);
+        text(theme.tema,left+8,y+5,width-108,8);
+        text(formatReportCount(theme.total_acertos,theme.total_questoes,report.nota_geral_dez!==null),left+width-92,y+5,84,9,NAVY,true,{align:'right'});y+=h;
+      }
+      y+=12;
+    }
+    if (report.status==='ALERTA_REVISAO') paragraph('Acertos provisórios: existem respostas incertas que precisam ser revistas antes do envio.',8,'#9a6700');
+    const interpretation=reportInterpretation(report),methodology=reportMethodology();
+    heading('Leitura do resultado',height(interpretation,width-18,8.5)+28);boxParagraph(interpretation,'#edf4ff','#bcd3ff',8.5);
     heading('Prioridades de revisão');
     const priorities=report.prioridades.filter(p=>p.incorretas.length || p.brancos.length || p.duplas.length || p.incertas.length);
     if (!priorities.length) paragraph(report.nota_geral_dez===null?'A correção precisa ser concluída para identificar as questões a revisar.':'Nenhuma resposta incorreta, em branco, dupla ou incerta foi identificada.',8);
@@ -76,8 +88,8 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
       const h=Math.max(...row.map(p=>height(p.body,priorityW-14,7.8)+height(p.title,priorityW-14,8,true)))+21;
       ensure(h+6);row.forEach((p,index)=>{const x=left+index*(priorityW+gap);doc.rect(x,y,priorityW,h).fillAndStroke('#f8fafc',LINE);text(p.title,x+7,y+6,priorityW-14,8,NAVY,true);text(p.body,x+7,y+height(p.title,priorityW-14,8,true)+10,priorityW-14,7.8);});y+=h+6;
     }
-    y+=4;heading('Critério de correção',height(report.metodologia,width-18,7.5)+28);
-    boxParagraph(report.metodologia,'#fff5df','#e9cf90',7.5);
+    y+=4;heading('Critério de correção',height(methodology,width-18,7.5)+28);
+    boxParagraph(methodology,'#fff5df','#e9cf90',7.5);
     if (report.pendencias.length) {heading('Pendências');for (const p of report.pendencias) paragraph(p,8,'#9a6700');}
     if (report.avisos.length) {heading('Observações');for (const p of report.avisos) paragraph(p,8,MUTED);}
     // Keep the heading, total and competency row together when metadata pushes them near the footer.
@@ -113,7 +125,7 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     for(let i=range.start;i<range.start+range.count;i++) {
       doc.switchToPage(i);const fy=doc.page.height-42, oldBottom=doc.page.margins.bottom;doc.page.margins.bottom=0;
       doc.moveTo(left,fy-8).lineTo(left+width,fy-8).stroke(LINE);
-      text(`Boletim #${report.resultado_id} | Escala objetiva: 0 a 10`,left,fy,width-70,7,MUTED,false,{lineBreak:false});
+      text(`Boletim #${report.resultado_id} | Acertos por área e tema`,left,fy,width-70,7,MUTED,false,{lineBreak:false});
       text(`Página ${i+1}/${range.count}`,left+width-70,fy,70,7,MUTED,false,{align:'right',lineBreak:false});doc.page.margins.bottom=oldBottom;
     }
     doc.end();

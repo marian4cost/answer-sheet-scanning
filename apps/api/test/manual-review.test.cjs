@@ -132,7 +132,7 @@ test('revisão aguarda email com lease ativo e não registra nenhuma decisão pa
 });
 test('planilha Excel exporta respostas e temas revisados com OCR original preservado no banco',async()=>{
   const f=await fixture({...allAnswers('A'),'1':'INC'},'ALERTA_REVISAO');await revise(f,{'1':'B'});
-  const data=await scope(()=>simulados.results(f.sim.id)),buffer=await new ExportService(db).create(data);
+  const data=await scope(()=>simulados.results(f.sim.id)),buffer=await scope(()=>new ExportService(db).create(data));
   const ExcelJS=require('exceljs'),workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);
   const sheet=workbook.getWorksheet('Resultados_OMR'),headers=sheet.getRow(1).values;
   assert.equal(sheet.getCell(2,headers.indexOf('Q1')).value,'B (✗)');assert.equal(sheet.getCell(2,headers.indexOf('Total_Acertos')).value,49);
