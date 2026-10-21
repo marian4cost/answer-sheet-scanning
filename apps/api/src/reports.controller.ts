@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, ParseIntPipe, Post, Put, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseIntPipe, Post, Put, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import { memoryStorage } from 'multer';
@@ -10,6 +10,7 @@ export class ReportsController {
   constructor(@Inject(ContactsService) private readonly contacts: ContactsService, @Inject(ReportsService) private readonly reports: ReportsService) {}
   @Get('contatos') contactsList() { return this.contacts.list(); }
   @Put('contatos/:matricula') updateContact(@Param('matricula') matricula: string, @Body() body: unknown) { return this.contacts.update(matricula, body); }
+  @Delete('contatos/:matricula') deleteContact(@Param('matricula') matricula: string, @Body() body: unknown) { return this.contacts.remove(matricula, body); }
   @Get('contatos/modelo.csv') template(@Res() response: Response) {
     response.setHeader('Content-Type', 'text/csv; charset=utf-8'); response.setHeader('Content-Disposition', 'attachment; filename="Modelo_Contatos.csv"'); response.send(this.contacts.template());
   }

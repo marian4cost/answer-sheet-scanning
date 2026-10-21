@@ -22,6 +22,22 @@ export class ContactsService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
   async list(): Promise<{contatos: StudentContact[]}> { return {contatos: await this.db.all<StudentContact>('SELECT matricula,email,nome,curso,atualizado_em,expira_em FROM student_contacts WHERE owner_id=? AND (expira_em IS NULL OR expira_em>?) ORDER BY matricula', accountId(), new Date().toISOString())}; }
   async get(matricula: string): Promise<StudentContact | undefined> { return this.db.get<StudentContact>('SELECT matricula,email,nome,curso,atualizado_em,expira_em FROM student_contacts WHERE matricula=? AND owner_id=? AND (expira_em IS NULL OR expira_em>?)', matricula, accountId(), new Date().toISOString()); }
+  async remove(matricula: string, raw: unknown): Promise<{matricula:string;message:string}> {
+    if (!await this.get(matricula)) throw new NotFoundException('Contato não encontrado.');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['confirmar','matricula','atualizado_em'].includes(key))) throw new BadRequestException('Confira o aluno e confirme a exclusão pela matrícula.');
+    const body = raw as Record<string, unknown>;
+    if (body.confirmar !== 'excluir' || body.matricula !== matricula) throw new BadRequestException('Digite a matrícula exata do aluno para confirmar a exclusão.');
+    if (typeof body.atualizado_em !== 'string' || !body.atualizado_em || body.atualizado_em.length > 100 || /[\x00-\x1f\x7f]/.test(body.atualizado_em)) throw new BadRequestException('Atualize a lista e abra a exclusão novamente.');
+    return this.db.transaction(async () => {
+      if (this.db.dialect === 'postgres') await this.db.get('SELECT matricula FROM student_contacts WHERE owner_id=? AND matricula=? FOR UPDATE', accountId(), matricula);
+      const before = await this.get(matricula);
+      if (!before) throw new NotFoundException('Contato não encontrado.');
+      if (before.atualizado_em !== body.atualizado_em) throw new ConflictException('Este contato foi alterado em outra aba ou importação. Feche a exclusão, atualize a lista e confira os novos dados.');
+      const deleted = await this.db.run('DELETE FROM student_contacts WHERE owner_id=? AND matricula=? AND atualizado_em=? AND (expira_em IS NULL OR expira_em>?)', accountId(), matricula, body.atualizado_em as string, new Date().toISOString());
+      if (!deleted.changes) throw new ConflictException('O contato mudou ou expirou. Atualize a lista antes de excluir novamente.');
+      return {matricula,message:'Aluno excluído da sua base de contatos.'};
+    });
+  }
   async update(original: string, raw: unknown): Promise<StudentContact> {
     // A matrícula da URL só identifica contatos da conta autenticada.
     if (!await this.get(original)) throw new NotFoundException('Contato não encontrado.');
