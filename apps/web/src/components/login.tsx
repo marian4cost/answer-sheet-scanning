@@ -16,7 +16,7 @@ export function LoginView() {
       const token = fragment.get('access_token');
       if (token) {
         window.history.replaceState(null,'','/login');setBusy(true);
-        try {await api('/auth/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:token})});router.replace('/');}
+        try {await api('/auth/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:token,...(fragment.get('refresh_token')?{refresh_token:fragment.get('refresh_token')}:{})})});router.replace('/');}
         catch(error) {setError(errorMessage(error));} finally {setBusy(false);}
       } else if (fragment.get('error_description')) {window.history.replaceState(null,'','/login');setError('O link expirou. Solicite outro código.');}
     }).catch(error => {setConfig({required:true});setError(errorMessage(error));});

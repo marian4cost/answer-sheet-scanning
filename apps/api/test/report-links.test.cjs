@@ -155,7 +155,7 @@ test('URLs inseguras e TTL inválido são recusados antes de reservar entregas o
 });
 test('exceções públicas exigem método e caminho exatos; rotas administrativas permanecem autenticadas',async()=>{
   const auth=new AuthService();let userCalls=0;auth.user=async()=>{userCalls++;throw new Error('Sem sessão.');};
-  async function check(method,path) {let called=false,status=200;const headers={};const response={setHeader:(k,v)=>headers[k]=v,status:v=>{status=v;return response;},json:()=>{}};const request={method,path,headers:{},get:()=>undefined};await auth.middleware()(request,response,()=>called=true);return {called,status,headers};}
+  async function check(method,path) {let called=false,status=200;const headers={};const response={setHeader:(k,v)=>headers[k]=v,clearCookie(){},status:v=>{status=v;return response;},json:()=>{}};const request={method,path,headers:{},get:()=>undefined};await auth.middleware()(request,response,()=>called=true);return {called,status,headers};}
   for(const [method,path] of [['POST','/api/boletim/consultar'],['POST','/api/boletim/pdf'],['GET','/api/boletim/limpar']]) {const state=await check(method,path);assert.equal(state.called,true);assert.equal(state.headers['Referrer-Policy'],'no-referrer');}
   for(const [method,path] of [['GET','/api/boletim/consultar'],['GET','/api/boletim/pdf'],['POST','/api/boletim/limpar'],['POST','/api/boletim/consultar/extra'],['GET','/api/resultados/1/boletim/pdf'],['GET','/api/contatos'],['POST','/api/simulados/1/boletins/enviar']]) {const state=await check(method,path);assert.equal(state.called,false);assert.equal(state.status,401);}
   assert.equal(userCalls,7);

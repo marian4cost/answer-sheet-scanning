@@ -14,7 +14,7 @@ function request({method='GET',path='/api/simulados',headers={}}={}){return {met
 function response(){return {statusCode:200,body:null,headers:{},cookies:[],cleared:[],status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},setHeader(key,value){this.headers[key]=value;},cookie(...args){this.cookies.push(args);},clearCookie(...args){this.cleared.push(args);}};}
 async function middleware(auth,req){const res=response();let calls=0,identity;await auth.middleware()(req,res,()=>{calls++;try{identity=currentAccount();}catch{}});return {...res,nextCalls:calls,identity};}
 function provider(t,body,{status=200}={}){const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});});return calls;}
-function routerProvider(t,handler){const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});const result=handler(url,options);return new Response(JSON.stringify(result.body??result),{status:result.status??200,headers:{'Content-Type':'application/json'}});});return calls;}
+function routerProvider(t,handler){const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});const result=await handler(url,options);return new Response(JSON.stringify(result.body??result),{status:result.status??200,headers:{'Content-Type':'application/json'}});});return calls;}
 
 test('somente role protegida e email confirmado permitem acesso; allowlist e flag antiga não autorizam',()=>{
   assert.equal(teacherAllowed(user),true);assert.equal(teacherAllowed({...user,app_metadata:{role:'admin'}}),true);
@@ -28,7 +28,7 @@ test('cadastro público permanece desativado mesmo com AUTH_REGISTRATION_ENABLED
   await assert.rejects(auth.login(user.email,'123456',response(),true),error=>error.getStatus()===403);assert.equal(calls.length,0);
 });
 test('login por senha valida identidade atual no Supabase, sem expor senha ou sessão',async(t)=>{
-  const calls=routerProvider(t,url=>url.includes('/token?')?{access_token:'private-session',expires_in:3600}:user),res=response();
+  const calls=routerProvider(t,url=>url.includes('/token?')?{access_token:'private-session',refresh_token:'private-refresh',expires_in:3600}:user),res=response();
   const result=await new AuthService().passwordLogin(' TEACHER@example.com ','Ficticia-123!',res);
   assert.match(calls[0].url,/grant_type=password/);assert.deepEqual(JSON.parse(calls[0].options.body),{email:user.email,password:'Ficticia-123!'});
   assert.equal(result.id,UUID);assert.equal(result.role,'professor');assert.equal(result.nome,'Professora Teste');assert.equal(res.cookies[0][2].httpOnly,true);
@@ -85,9 +85,9 @@ test('role removida vale imediatamente para o mesmo token revalidado',async(t)=>
   assert.equal((await middleware(auth,req)).nextCalls,1);identity={...user,app_metadata:{role:'student'}};assert.equal((await middleware(auth,req)).statusCode,403);assert.equal(calls.length,2);
 });
 test('configuração ausente, erro de rede, JWT expirado e JSON inválido sempre fecham acesso',async(t)=>{
-  const auth=new AuthService(),req=request({headers:{authorization:'Bearer token'}}),mock=t.mock.method(globalThis,'fetch',async()=>{throw new Error('offline');});assert.equal((await middleware(auth,req)).statusCode,401);
+  const auth=new AuthService(),req=request({headers:{authorization:'Bearer token'}}),mock=t.mock.method(globalThis,'fetch',async()=>{throw new Error('offline');});assert.equal((await middleware(auth,req)).statusCode,503);
   mock.mock.mockImplementation(async()=>new Response(JSON.stringify({error:'invalid JWT'}),{status:401}));assert.equal((await middleware(auth,req)).statusCode,401);
-  mock.mock.mockImplementation(async()=>new Response('not json',{status:200}));assert.equal((await middleware(auth,req)).statusCode,401);
+  mock.mock.mockImplementation(async()=>new Response('not json',{status:200}));assert.equal((await middleware(auth,req)).statusCode,503);
   delete process.env.SUPABASE_ANON_KEY;assert.deepEqual(auth.config(),{required:true,configured:false,registration_enabled:false});assert.equal((await middleware(auth,req)).statusCode,401);
 });
 test('token vazio, UUID inválido e email/code/password malformados são bloqueados',async(t)=>{
@@ -97,8 +97,9 @@ test('token vazio, UUID inválido e email/code/password malformados são bloquea
   for(const password of ['curta',null,'x'.repeat(129)])await assert.rejects(auth.passwordLogin(user.email,password,response()),error=>error.getStatus()===400);assert.equal(calls.length,1);
 });
 test('verificação de OTP usa email, identidade correta e cookie Secure HttpOnly com TTL limitado',async(t)=>{
-  const calls=routerProvider(t,url=>url.endsWith('/verify')?{access_token:'verified-jwt',expires_in:7200}:user),res=response(),result=await new AuthService().login(user.email,'123456',res);
-  assert.equal(result.email,user.email);assert.deepEqual(JSON.parse(calls[0].options.body),{email:user.email,token:'123456',type:'email'});assert.equal(res.cookies.length,1);const [name,value,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(value,'verified-jwt');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
+  const calls=routerProvider(t,url=>url.endsWith('/verify')?{access_token:'verified-jwt',refresh_token:'verified-refresh',expires_in:7200}:user),res=response(),result=await new AuthService().login(user.email,'123456',res);
+  assert.equal(result.email,user.email);assert.deepEqual(JSON.parse(calls[0].options.body),{email:user.email,token:'123456',type:'email'});assert.equal(res.cookies.length,2);const [name,value,config]=res.cookies[0];assert.equal(name,'enem_session');assert.equal(value,'verified-jwt');assert.equal(config.httpOnly,true);assert.equal(config.secure,true);assert.equal(config.sameSite,'lax');assert.equal(config.maxAge,3600000);
+  const refresh=res.cookies[1];assert.equal(refresh[0],'enem_refresh');assert.equal(refresh[2].maxAge,604800000);assert.equal(refresh[2].httpOnly,true);assert.equal(refresh[2].secure,true);assert.equal(refresh[2].sameSite,'lax');
 });
 test('OTP de outro email, conta sem role e código rejeitado nunca criam sessão',async(t)=>{
   for(const identity of [{...user,email:'outra@example.com'},{...user,app_metadata:{}}]){routerProvider(t,url=>url.endsWith('/verify')?{access_token:'verified'}:identity);const res=response();await assert.rejects(new AuthService().login(user.email,'123456',res));assert.equal(res.cookies.length,0);t.mock.restoreAll();}
@@ -109,7 +110,74 @@ test('limites IP e email são aplicados antes de lookup ou verificação remota'
   for(const action of [()=>auth.requestCode(user.email),()=>auth.passwordLogin(user.email,'Ficticia-123!',response()),()=>auth.login(user.email,'123456',response())])await assert.rejects(action(),error=>error.getStatus()===429);assert.equal(calls.length,0);
 });
 test('logout e sessão preservam Secure HttpOnly e nunca retornam tokens',async(t)=>{
-  provider(t,user);const auth=new AuthService(),res=response(),result=await auth.session('mock-token',res);assert.equal(result.role,'professor');assert.doesNotMatch(JSON.stringify(result),/mock-token/);assert.equal(res.cookies[0][2].secure,true);assert.deepEqual(auth.logout(res),{ok:true});assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
+  provider(t,user);const auth=new AuthService(),res=response(),result=await auth.session('mock-token',res);assert.equal(result.role,'professor');assert.doesNotMatch(JSON.stringify(result),/mock-token/);assert.equal(res.cookies[0][2].secure,true);assert.deepEqual(await auth.logout(res),{ok:true});assert.equal(res.cleared[0][1].httpOnly,true);assert.equal(res.cleared[0][1].secure,true);
+});
+
+test('senha cria renovação por sete dias e não transforma o JWT em token de sete dias',async(t)=>{
+  routerProvider(t,url=>url.includes('/token?')?{access_token:'access-private',refresh_token:'refresh-private',expires_in:3600}:user);
+  const res=response(),profile=await new AuthService().passwordLogin(user.email,'Ficticia-123!',res);
+  assert.equal(res.cookies.find(c=>c[0]==='enem_session')[2].maxAge,3600000);
+  assert.equal(res.cookies.find(c=>c[0]==='enem_refresh')[2].maxAge,7*86400_000);
+  for(const cookie of res.cookies)assert.deepEqual({httpOnly:cookie[2].httpOnly,secure:cookie[2].secure,sameSite:cookie[2].sameSite,path:cookie[2].path},{httpOnly:true,secure:true,sameSite:'lax',path:'/'});
+  assert.doesNotMatch(JSON.stringify(profile),/access-private|refresh-private/);
+});
+test('cookie de acesso expirado ou ausente é renovado automaticamente antes da rota protegida',async(t)=>{
+  const session={access_token:'new-access',refresh_token:'rotated-refresh',expires_in:3600};
+  const calls=routerProvider(t,(url,options)=>url.includes('grant_type=refresh_token')?session:options.headers.Authorization==='Bearer expired-access'?{status:401,body:{error:'expired'}}:user);
+  for(const cookie of ['enem_refresh=old-refresh','enem_session=expired-access; enem_refresh=old-refresh']){
+    const res=await middleware(new AuthService(),request({headers:{cookie}}));assert.equal(res.nextCalls,1);assert.equal(res.identity.id,UUID);assert.equal(res.cookies.length,2);assert.equal(res.cookies[1][1],session.refresh_token);assert.equal(res.cookies[1][2].maxAge,604800000);
+  }
+  assert.equal(calls.filter(c=>c.url.includes('grant_type=refresh_token')).length,2);
+});
+test('sessão válida não renova desnecessariamente e requisições simultâneas compartilham uma renovação',async(t)=>{
+  const calls=routerProvider(t,async(url,options)=>{
+    if(url.includes('grant_type=refresh_token')){await new Promise(resolve=>setImmediate(resolve));return {access_token:'fresh',refresh_token:'fresh-refresh',expires_in:3600};}
+    return options.headers.Authorization==='Bearer expired'?{status:401,body:{error:'expired'}}:user;
+  }),auth=new AuthService();
+  const valid=await middleware(auth,request({headers:{cookie:'enem_session=valid; enem_refresh=unused'}}));assert.equal(valid.nextCalls,1);assert.equal(valid.cookies.length,0);
+  const results=await Promise.all(Array.from({length:8},()=>middleware(auth,request({headers:{cookie:'enem_session=expired; enem_refresh=parent'}}))));
+  assert.ok(results.every(r=>r.nextCalls===1&&r.identity.id===UUID));assert.equal(calls.filter(c=>c.url.includes('grant_type=refresh_token')).length,1);
+});
+test('Bearer inválido não utiliza a sessão de outra conta presente nos cookies',async(t)=>{
+  const calls=provider(t,{error:'invalid'},{status:401});
+  const res=await middleware(new AuthService(),request({headers:{authorization:'Bearer invalid',cookie:'enem_session=other; enem_refresh=other-refresh'}}));
+  assert.equal(res.statusCode,401);assert.equal(res.nextCalls,0);assert.equal(calls.length,1);assert.equal(res.cookies.length,0);assert.equal(res.cleared.length,0);
+});
+test('token revogado ou cookie malformado não reabre sessão e limpa ambos os cookies',async(t)=>{
+  const calls=provider(t,{error:'revoked'},{status:400});
+  const revoked=await middleware(new AuthService(),request({headers:{cookie:'enem_refresh=revoked'}}));assert.equal(revoked.statusCode,401);assert.equal(revoked.nextCalls,0);assert.deepEqual(revoked.cleared.map(c=>c[0]),['enem_session','enem_refresh']);
+  const malformed=await middleware(new AuthService(),request({headers:{cookie:'enem_refresh=%E0%A4%A'}}));assert.equal(malformed.statusCode,401);assert.equal(calls.length,1);
+});
+test('indisponibilidade temporária do provedor retorna 503 sem apagar a sessão de sete dias',async(t)=>{
+  provider(t,{message:'unavailable'},{status:503});const res=await middleware(new AuthService(),request({headers:{cookie:'enem_refresh=still-valid'}}));
+  assert.equal(res.statusCode,503);assert.equal(res.nextCalls,0);assert.equal(res.cleared.length,0);assert.equal(res.cookies.length,0);
+});
+test('renovação revalida role, confirmação de email e bloqueio no Supabase',async(t)=>{
+  for(const candidate of [{...user,app_metadata:{}},{...user,email_confirmed_at:null},{...user,banned_until:'2999-01-01'}]){
+    routerProvider(t,url=>url.includes('/token?')?{access_token:'fresh',refresh_token:'fresh-refresh',expires_in:3600}:candidate);
+    const res=await middleware(new AuthService(),request({headers:{cookie:'enem_refresh=known'}}));assert.equal(res.statusCode,403);assert.equal(res.nextCalls,0);assert.equal(res.cookies.length,0);t.mock.restoreAll();
+  }
+});
+test('link de email vincula o refresh token à mesma conta antes de criar sessão longa',async(t)=>{
+  const calls=routerProvider(t,(url,options)=>url.includes('/token?')?{access_token:'refreshed-link',refresh_token:'rotated-link',expires_in:3600}:user),res=response();
+  const profile=await new AuthService().session('link-access',res,'link-refresh');assert.equal(profile.id,UUID);assert.equal(res.cookies[1][2].maxAge,604800000);assert.doesNotMatch(JSON.stringify(profile),/link-access|rotated-link/);
+  assert.deepEqual(JSON.parse(calls.find(c=>c.url.includes('/token?')).options.body),{refresh_token:'link-refresh'});
+});
+test('access e refresh tokens de contas diferentes não podem ser combinados',async(t)=>{
+  routerProvider(t,(url,options)=>url.includes('/token?')?{access_token:'other-access',refresh_token:'other-refresh',expires_in:3600}:options.headers.Authorization==='Bearer other-access'?{...user,id:'22222222-2222-4222-8222-222222222222'}:user);
+  const res=response();await assert.rejects(new AuthService().session('first-access',res,'second-refresh'),error=>error.getStatus()===401);assert.equal(res.cookies.length,0);
+});
+test('login incompleto do provedor não cria sessão parcialmente persistida',async(t)=>{
+  routerProvider(t,url=>url.includes('/token?')?{access_token:'missing-refresh',expires_in:3600}:user);const res=response();
+  await assert.rejects(new AuthService().passwordLogin(user.email,'Ficticia-123!',res),error=>error.getStatus()===401);assert.equal(res.cookies.length,0);
+});
+test('sair remove cookies e revoga somente a sessão atual no provedor, inclusive após expirar o acesso',async(t)=>{
+  const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{
+    calls.push({url,options});if(url.endsWith('/logout?scope=local'))return new Response(null,{status:204});
+    return new Response(JSON.stringify(url.includes('/token?')?{access_token:'renewed-for-logout',refresh_token:'new-for-logout',expires_in:3600}:user),{status:200});
+  });
+  const res=response();assert.deepEqual(await new AuthService().logout(res,request({headers:{cookie:'enem_refresh=parent-for-logout'}})),{ok:true});assert.equal(res.cookies.length,0);assert.deepEqual(res.cleared.map(c=>c[0]),['enem_session','enem_refresh']);
+  const revoke=calls.find(c=>c.url.endsWith('/logout?scope=local'));assert.ok(revoke);assert.equal(revoke.options.headers.Authorization,'Bearer renewed-for-logout');assert.equal(revoke.options.method,'POST');
 });
 test('exclusão administrativa aceita resposta sem corpo e envia apenas ao usuário individual',async(t)=>{
   const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return new Response(null,{status:204});});
