@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes, createHash } from 'node:crypto';
 import { extname } from 'node:path';
 import ExcelJS from 'exceljs';
@@ -22,6 +22,39 @@ export class ContactsService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
   async list(): Promise<{contatos: StudentContact[]}> { return {contatos: await this.db.all<StudentContact>('SELECT matricula,email,nome,curso,atualizado_em,expira_em FROM student_contacts WHERE owner_id=? AND (expira_em IS NULL OR expira_em>?) ORDER BY matricula', accountId(), new Date().toISOString())}; }
   async get(matricula: string): Promise<StudentContact | undefined> { return this.db.get<StudentContact>('SELECT matricula,email,nome,curso,atualizado_em,expira_em FROM student_contacts WHERE matricula=? AND owner_id=? AND (expira_em IS NULL OR expira_em>?)', matricula, accountId(), new Date().toISOString()); }
+  async update(original: string, raw: unknown): Promise<StudentContact> {
+    // A matrícula da URL só identifica contatos da conta autenticada.
+    if (!await this.get(original)) throw new NotFoundException('Contato não encontrado.');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['matricula','email','nome','curso','atualizado_em'].includes(key))) throw new BadRequestException('Informe matrícula, email, nome e curso do contato.');
+    const body = raw as Record<string, unknown>;
+    for (const [field, label, max, required] of [['matricula','matrícula',100,true],['nome','nome',150,false],['curso','curso',150,false]] as const) {
+      const value = body[field];
+      if (typeof value !== 'string' || value.trim().length > max || /[\x00-\x1f\x7f]/.test(value) || (required && !value.trim())) throw new BadRequestException(`Informe ${label} válido (até ${max} caracteres, sem quebras de linha).`);
+    }
+    if (typeof body.email !== 'string' || !validEmail(body.email.trim().toLowerCase())) throw new BadRequestException('Informe um email válido.');
+    if (typeof body.atualizado_em !== 'string' || !body.atualizado_em || body.atualizado_em.length > 100 || /[\x00-\x1f\x7f]/.test(body.atualizado_em)) throw new BadRequestException('Atualize a lista e abra a edição novamente.');
+    const contact = {matricula:(body.matricula as string).trim(), email:body.email.trim().toLowerCase(), nome:(body.nome as string).trim(), curso:(body.curso as string).trim()};
+    try {
+      return await this.db.transaction(async () => {
+        if (this.db.dialect === 'postgres') await this.db.get('SELECT matricula FROM student_contacts WHERE owner_id=? AND matricula=? FOR UPDATE', accountId(), original);
+        const before = await this.get(original);
+        if (!before) throw new NotFoundException('Contato não encontrado.');
+        if (before.atualizado_em !== body.atualizado_em) throw new ConflictException('Este contato foi alterado em outra aba ou importação. Feche a edição, atualize a lista e confira os novos dados.');
+        if (contact.matricula !== original && await this.db.get('SELECT matricula FROM student_contacts WHERE owner_id=? AND matricula=?', accountId(), contact.matricula)) throw new ConflictException('Já existe um contato com esta matrícula na sua conta. Escolha outra matrícula.');
+        if (JSON.stringify(contactComparable(before)) === JSON.stringify(contact)) return before;
+        const now = new Date(Math.max(Date.now(), (Date.parse(before.atualizado_em!) || 0) + 1)).toISOString();
+        const saved = await this.db.run(`UPDATE student_contacts SET matricula=?,email=?,nome=?,curso=?,atualizado_em=?
+          WHERE owner_id=? AND matricula=? AND atualizado_em=? AND (expira_em IS NULL OR expira_em>?)`,
+          contact.matricula, contact.email, contact.nome, contact.curso, now, accountId(), original, body.atualizado_em as string, new Date().toISOString());
+        if (!saved.changes) throw new ConflictException('O contato mudou ou expirou. Atualize a lista antes de editar novamente.');
+        return {...before, ...contact, atualizado_em:now};
+      });
+    } catch (error) {
+      const failure = error as {code?:string;errcode?:number};
+      if (failure.code === '23505' || failure.errcode === 1555 || failure.errcode === 2067) throw new ConflictException('Já existe um contato com esta matrícula na sua conta. Escolha outra matrícula.');
+      throw error;
+    }
+  }
   template(): string { return '\uFEFFmatricula,email,nome,curso\r\n000123,aluno@example.com,Aluno de exemplo,Curso de exemplo\r\n'; }
   private async fingerprint(contacts: StudentContact[]) {
     const state = await Promise.all(contacts.map(async contact => contactComparable(await this.get(contact.matricula))));

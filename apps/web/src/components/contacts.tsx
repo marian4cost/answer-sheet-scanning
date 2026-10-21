@@ -1,17 +1,20 @@
 'use client';
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Download, Search, Upload, UserRoundCheck, Check } from 'lucide-react';
+import { Download, Search, Upload, UserRoundCheck, Check, Pencil } from 'lucide-react';
 import type { ContactImportPreview, StudentContact } from '@enem/shared/src/reports';
 import { api, errorMessage, dateText } from '@/lib/api';
 import { useResource } from '@/lib/use-resource';
 import { Alert, BackLink, Empty, Loading, useNotice } from './ui';
+import { ContactEditor } from './contact-editor';
+import styles from './contact-editor.module.css';
 import './report-ui.css';
 
 export function ContactsView() {
   const {data, loading, error, refresh} = useResource<{contatos: StudentContact[]}>('/contatos');
   const [busy, setBusy] = useState(false), [formError, setFormError] = useState('');
   const [preview, setPreview] = useState<ContactImportPreview | null>(null);
+  const [editing, setEditing] = useState<StudentContact|null>(null);
   const [search, setSearch] = useState(''), [page, setPage] = useState(0), [previewPage, setPreviewPage] = useState(0);
   const notify = useNotice();
   const filtered = useMemo(() => (data?.contatos || []).filter(contact => [contact.matricula,contact.nome,contact.email,contact.curso || ''].some(value => value.toLocaleLowerCase().includes(search.toLocaleLowerCase()))), [data,search]);
@@ -32,6 +35,10 @@ export function ContactsView() {
       notify(result.message); setPreview(null); refresh();
     } catch(error) {setFormError(errorMessage(error));} finally {setBusy(false);}
   }
+  function contactSaved(contact:StudentContact) {
+    setEditing(null);setPreview(null);setFormError('');setSearch('');setPage(0);refresh();
+    notify(`Contato da matrícula ${contact.matricula} atualizado.`);
+  }
   return <><BackLink/><div className="page-heading"><div><span className="eyebrow">MATRÍCULAS E DESTINATÁRIOS</span><h1>Contatos dos alunos</h1><p>Associe cada matrícula ao email correto para preparar os boletins.</p></div><a className="button outline" href="/api/contatos/modelo.csv"><Download size={17}/>Baixar modelo CSV</a></div>
     <div className="contacts-grid"><section className="card"><div className="section-heading"><Upload size={21}/><h2>Importar planilha</h2></div>
       <p className="help">Colunas obrigatórias: <strong>Matrícula</strong> e <strong>Email</strong> ou <strong>Email Acadêmico</strong>. <strong>Nome</strong> e <strong>Curso</strong> ou <strong>Descrição do Curso</strong> são opcionais. O relatório com abas Registros e Filtros é aceito. Use CSV ou XLSX, até 2 MB e 10.000 contatos. Sem a coluna curso, os cursos já cadastrados são preservados.</p>
@@ -47,11 +54,11 @@ export function ContactsView() {
       <div className="actions end"><button className="button outline" type="button" disabled={busy} onClick={() => setPreview(null)}>Cancelar prévia</button><button className="button primary" type="button" disabled={busy || !preview.token || preview.erros.length > 0} onClick={confirm}><Check size={17}/>{busy ? 'Importando...' : `Confirmar importação de ${preview.total} contatos`}</button></div><p className="help">Prévia válida até {dateText(preview.expira_em)}. Confira todas as páginas antes de confirmar.</p>
     </section>}
     <section className="card report-section"><div className="section-heading between table-heading"><h2>Contatos cadastrados · {data?.contatos.length || 0}</h2><label className="search"><Search size={17}/><input aria-label="Buscar contato" placeholder="Matrícula, nome ou email..." value={search} onChange={event => {setSearch(event.target.value);setPage(0);}}/></label></div>
-      {loading && !data ? <Loading/> : error ? <><Alert kind="error">{error}</Alert><button className="button outline" onClick={refresh}>Tentar novamente</button></> : !filtered.length ? <Empty>{search ? 'Nenhum contato encontrado.' : 'Nenhum contato cadastrado. Importe a primeira planilha.'}</Empty> : <><ContactsTable contacts={filtered.slice(currentPage * 25,currentPage * 25 + 25)}/><Paging page={currentPage} total={filtered.length} onChange={setPage}/></>}
-    </section></>;
+      {loading && !data ? <Loading/> : error ? <><Alert kind="error">{error}</Alert><button className="button outline" onClick={refresh}>Tentar novamente</button></> : !filtered.length ? <Empty>{search ? 'Nenhum contato encontrado.' : 'Nenhum contato cadastrado. Importe a primeira planilha.'}</Empty> : <><ContactsTable contacts={filtered.slice(currentPage * 25,currentPage * 25 + 25)} onEdit={setEditing}/><Paging page={currentPage} total={filtered.length} onChange={setPage}/></>}
+    </section>{editing&&<ContactEditor key={editing.matricula} contact={editing} onClose={()=>{setEditing(null);refresh();}} onSaved={contactSaved}/>}</>;
 }
-function ContactsTable({contacts}:{contacts:StudentContact[]}) {
-  return <div className="table-scroll"><table aria-label="Matrículas e emails"><thead><tr><th>Matrícula</th><th>Nome</th><th>Curso</th><th>Email</th></tr></thead><tbody>{contacts.map(contact => <tr key={contact.matricula}><td className="matricula">{contact.matricula}</td><td>{contact.nome || 'Não informado'}</td><td>{contact.curso || 'Não informado'}</td><td className="report-email">{contact.email}</td></tr>)}</tbody></table></div>;
+function ContactsTable({contacts,onEdit}:{contacts:StudentContact[];onEdit?:(contact:StudentContact)=>void}) {
+  return <div className={`table-scroll ${onEdit?styles.editableTable:''}`}><table aria-label="Matrículas e emails"><thead><tr><th>Matrícula</th><th>Nome</th><th>Curso</th><th>Email</th>{onEdit&&<th>Ações</th>}</tr></thead><tbody>{contacts.map(contact => <tr key={contact.matricula}><td className="matricula" data-label="Matrícula">{contact.matricula}</td><td data-label="Nome">{contact.nome || 'Não informado'}</td><td data-label="Curso">{contact.curso || 'Não informado'}</td><td className="report-email" data-label="E-mail">{contact.email}</td>{onEdit&&<td data-label="Ações"><button type="button" className={`button outline small ${styles.editButton}`} aria-label={`Editar contato da matrícula ${contact.matricula}`} onClick={()=>onEdit(contact)}><Pencil size={15}/>Editar</button></td>}</tr>)}</tbody></table></div>;
 }
 function Paging({page,total,onChange}:{page:number;total:number;onChange:(page:number)=>void}) {
   if (total <= 25) return null;

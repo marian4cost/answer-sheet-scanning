@@ -9,6 +9,7 @@ import { ReportsService } from './reports.service';
 export class ReportsController {
   constructor(@Inject(ContactsService) private readonly contacts: ContactsService, @Inject(ReportsService) private readonly reports: ReportsService) {}
   @Get('contatos') contactsList() { return this.contacts.list(); }
+  @Put('contatos/:matricula') updateContact(@Param('matricula') matricula: string, @Body() body: unknown) { return this.contacts.update(matricula, body); }
   @Get('contatos/modelo.csv') template(@Res() response: Response) {
     response.setHeader('Content-Type', 'text/csv; charset=utf-8'); response.setHeader('Content-Disposition', 'attachment; filename="Modelo_Contatos.csv"'); response.send(this.contacts.template());
   }
