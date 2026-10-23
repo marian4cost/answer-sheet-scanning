@@ -123,6 +123,18 @@ test('reemissão também exige o proprietário, sem enviar mensagens extras',asy
   const row=await db.get('SELECT id FROM report_deliveries WHERE resultado_id=?',resultA);
   assert.equal((await request('b',`/simulados/${simA}/boletins/reemitir/planejar`,'POST',{delivery_id:row.id})).status,404);assert.equal(sends,1);
 });
+
+test('HTTP resolver entrega exige proprietário e confirmação sem enviar mensagens',async()=>{
+  const result=(await db.run(`INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,nota_percentual,status,lote_id)
+    VALUES(?,?,50,0,0,0,100,'SUCESSO',?)`,'RESOLVER',JSON.stringify(key),batchA)).lastInsertRowid;
+  const delivery=(await db.run('INSERT INTO report_deliveries(resultado_id,destinatario,status,content_hash,message_id,erro,criado_em) VALUES(?,?,?,?,?,?,?)',result,'ficticio@example.test','AMBIGUO','ficticio','','Falha fictícia.',new Date().toISOString())).lastInsertRowid;
+  const history=await request('a',`/simulados/${simA}/boletins/entregas`),row=history.data.entregas.find(entry=>entry.id===delivery),body={confirmar:'nao_enviado',versao:row.resolucao_versao};
+  const route=`/simulados/${simA}/boletins/entregas/${delivery}/resolver`;
+  assert.equal((await request(null,route,'POST',body)).status,401);assert.equal((await request('b',route,'POST',body)).status,404);
+  assert.equal((await request('a',route,'POST',{...body,confirmar:'sim'})).status,400);
+  assert.equal((await request('a',route,'POST',body)).status,201);assert.equal((await request('a',route,'POST',body)).status,409);
+  assert.equal((await db.get('SELECT status FROM report_deliveries WHERE id=?',delivery)).status,'BLOQUEADO');assert.equal(sends,1);
+});
 test('arquivos locais não são expostos por /media para usuários autenticados',async()=>{
   const response=await fetch(base.replace('/api','')+'/media/debug_images/private.png',{headers:{Authorization:'Bearer a'}});assert.equal(response.status,404);
 });
@@ -198,6 +210,20 @@ test('PostgreSQL/PGlite executa serviços reais com isolamento, contatos por con
     const preview=await withAccount(accounts.a,()=>contacts.preview(Buffer.from('matricula,email\n000002,next@example.test\n'),'contacts.csv'));
     await assert.rejects(withAccount(accounts.b,()=>contacts.import(preview.token,'sim')),/expirou|utilizada/);
     assert.equal((await adapter.all('SELECT * FROM student_contacts WHERE matricula=?','000001')).length,2);
+    await withAccount(accounts.a,async()=>{
+      const now=new Date().toISOString();
+      const batch=(await adapter.run('INSERT INTO core_lotecorrecao(criado_em,simulado_id,gabarito_snapshot) VALUES(?,?,?)',now,a.id,JSON.stringify(key))).lastInsertRowid;
+      const result=(await adapter.run(`INSERT INTO core_resultadoaluno(matricula,respostas_detectadas,total_acertos,total_erros,total_rasuras,total_brancos,nota_percentual,status,lote_id) VALUES(?,?,50,0,0,0,100,'SUCESSO',?)`,'000001',JSON.stringify(key),batch)).lastInsertRowid;
+      const delivery=(await adapter.run('INSERT INTO report_deliveries(resultado_id,destinatario,status,content_hash,message_id,erro,criado_em) VALUES(?,?,?,?,?,?,?)',result,'a@example.test','AMBIGUO','ficticio','','Falha fictícia.',now)).lastInsertRowid;
+      await adapter.run('INSERT INTO report_access_links(token_hash,delivery_id,operation_hash,criado_em,expira_em) VALUES(?,?,?,?,?)','f'.repeat(64),delivery,'e'.repeat(64),now,new Date(Date.now()+60000).toISOString());
+      await adapter.run('INSERT INTO report_delivery_plans(token_hash,simulado_id,payload,expira_em,criado_em) VALUES(?,?,?,?,?)','b'.repeat(64),a.id,JSON.stringify([{resultado_id:result}]),new Date(Date.now()+60000).toISOString(),now);
+      const reports=new ReportsService(adapter,simulados,contacts,{availability:()=>({envio_disponivel:true}),deliver:async()=>{throw new Error('Resolver não pode enviar.');}});
+      const row=(await reports.deliveries(a.id)).entregas[0];assert.equal(row.resolucao_disponivel,true);
+      await reports.resolveDelivery(a.id,delivery,{confirmar:'nao_enviado',versao:row.resolucao_versao});
+      assert.equal((await adapter.get('SELECT status FROM report_deliveries WHERE id=?',delivery)).status,'BLOQUEADO');
+      assert.ok((await adapter.get('SELECT revogado_em FROM report_access_links WHERE delivery_id=?',delivery)).revogado_em);
+      assert.equal((await adapter.all('SELECT * FROM report_delivery_plans WHERE simulado_id=?',a.id)).length,0);
+    });
     await adapter.run('UPDATE core_simulado SET expira_em=? WHERE id=?',new Date(Date.now()-1).toISOString(),a.id);
     assert.equal(await simulados.cleanupExpired(),1);assert.ok(await withAccount(accounts.b,()=>simulados.get(b.id)));
     await pg.exec(await fs.readFile(path.resolve(__dirname,'../../../infra/sql/001-schema.sql'),'utf8'));

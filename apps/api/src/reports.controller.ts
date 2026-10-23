@@ -31,6 +31,7 @@ export class ReportsController {
   @Post('simulados/:id/boletins/enviar') send(@Param('id', ParseIntPipe) id: number, @Body('token') token: unknown, @Body('confirmar') confirmation: unknown) { return this.reports.send(id, token, confirmation); }
   @Post('simulados/:id/boletins/reemitir/planejar') planReissue(@Param('id', ParseIntPipe) id: number, @Body('delivery_id') deliveryId: unknown) { return this.reports.planReissue(id, deliveryId); }
   @Post('simulados/:id/boletins/reemitir') reissue(@Param('id', ParseIntPipe) id: number, @Body('token') token: unknown, @Body('confirmar') confirmation: unknown) { return this.reports.reissue(id, token, confirmation); }
+  @Post('simulados/:id/boletins/entregas/:deliveryId/resolver') resolveDelivery(@Param('id', ParseIntPipe) id: number, @Param('deliveryId', ParseIntPipe) deliveryId: number, @Body() body: unknown) { return this.reports.resolveDelivery(id, deliveryId, body); }
   @Post('boletim/consultar') @HttpCode(200)
   publicReport(@Body('token') token: unknown, @Res({passthrough:true}) response: Response) {
     this.accessHeaders(response);

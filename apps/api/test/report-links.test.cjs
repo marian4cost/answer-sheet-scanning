@@ -12,6 +12,7 @@ const {SimuladosService} = require('../dist/simulados.service.js');
 const {ContactsService} = require('../dist/contacts.service.js');
 const {AuthService} = require('../dist/auth.js');
 const {EmailJsNotSentError} = require('../dist/emailjs.service.js');
+const {withAccount} = require('../dist/account-context.js');
 const {grade} = require('../dist/grading.js');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 let db,contacts,simulados,sequence=0;
@@ -144,6 +145,70 @@ test('recusa por cota preserva o histórico e só tenta novamente após uma nova
   assert.equal(rows.length,1);assert.equal(rows[0].id,original.id);assert.equal(rows[0].status,'ENVIADO');
   await rejectsAccess(f.reports.publicReport(oldToken));
   assert.equal((await f.reports.publicReport(new URL(f.messages[1].url).hash.slice(1))).boletim.matricula,f.matricula);
+});
+
+async function ambiguousFixture() {
+  let fail=true;const f=await fixture(async()=>{if(fail)throw new Error('Timeout fictício.');return 'confirmed-after-resolution';});
+  const plan=await f.reports.plan(f.simuladoId,[f.resultId]);await f.reports.send(f.simuladoId,plan.token,'sim');
+  const row=(await f.reports.deliveries(f.simuladoId)).entregas[0];
+  return {...f,plan,row,allowSend:()=>{fail=false;},body:{confirmar:'nao_enviado',versao:row.resolucao_versao}};
+}
+
+test('resolver entrega exige confirmação exata, versão atual e corpo sem campos extras',async()=>{
+  const f=await ambiguousFixture();
+  for(const body of [null,[],{}, {...f.body,confirmar:'sim'},{...f.body,versao:'inválida'},{...f.body,status:'ENVIADO'}]) await assert.rejects(f.reports.resolveDelivery(f.simuladoId,f.row.id,body),error=>error.getStatus()===400);
+  await assert.rejects(f.reports.resolveDelivery(f.simuladoId,f.row.id,{...f.body,versao:'0'.repeat(64)}),error=>error.getStatus()===409);
+  assert.equal((await db.get('SELECT status FROM report_deliveries WHERE id=?',f.row.id)).status,'AMBIGUO');assert.equal(f.messages.length,1);
+});
+
+test('resolução manual não envia email, invalida prévias antigas e só uma nova confirmação envia',async()=>{
+  const f=await ambiguousFixture(),extra=await f.reports.plan(f.simuladoId,[f.resultId]);
+  assert.equal(f.row.resolucao_disponivel,true);
+  const token=new URL(f.messages[0].url).hash.slice(1);
+  const result=await f.reports.resolveDelivery(f.simuladoId,f.row.id,f.body);
+  assert.equal(result.status,'BLOQUEADO');assert.equal(result.resultado_id,f.resultId);assert.equal(f.messages.length,1);
+  const row=await db.get('SELECT * FROM report_deliveries WHERE id=?',f.row.id);assert.match(row.erro,/conferir no provedor/);assert.match(row.erro,/Não foi possível confirmar/);
+  const link=await db.get('SELECT * FROM report_access_links WHERE delivery_id=?',row.id);assert.equal(link.ativado_em,null);assert.ok(link.revogado_em);
+  for(const old of [f.plan,extra]) await assert.rejects(f.reports.send(f.simuladoId,old.token,'sim'),/expirou|inválido/);
+  assert.equal(f.messages.length,1);await rejectsAccess(f.reports.publicReport(token));
+  f.allowSend();const fresh=await f.reports.plan(f.simuladoId,[f.resultId]);await assert.rejects(f.reports.send(f.simuladoId,fresh.token,'nao'),/confirme/);
+  assert.equal((await f.reports.send(f.simuladoId,fresh.token,'sim')).total_enviados,1);assert.equal(f.messages.length,2);
+  assert.equal((await db.all('SELECT * FROM report_deliveries WHERE resultado_id=?',f.resultId)).length,1);await rejectsAccess(f.reports.publicReport(token));
+});
+
+test('resolução não permite acessar entrega de outra conta ou simulado',async()=>{
+  const f=await ambiguousFixture(),other=await fixture();
+  await assert.rejects(f.reports.resolveDelivery(other.simuladoId,f.row.id,f.body),error=>error.getStatus()===404);
+  await assert.rejects(withAccount({id:'22222222-2222-4222-8222-222222222222',email:'outro@example.test'},()=>f.reports.resolveDelivery(f.simuladoId,f.row.id,f.body)),error=>error.getStatus()===404);
+  assert.equal((await db.get('SELECT status FROM report_deliveries WHERE id=?',f.row.id)).status,'AMBIGUO');assert.equal(f.messages.length,1);
+});
+
+test('confirmação do provedor, link ativo ou envio recente impedem a liberação',async()=>{
+  const f=await ambiguousFixture();
+  async function denied() {const row=(await f.reports.deliveries(f.simuladoId)).entregas[0];assert.equal(row.resolucao_disponivel,false);await assert.rejects(f.reports.resolveDelivery(f.simuladoId,row.id,{confirmar:'nao_enviado',versao:row.resolucao_versao}),error=>error.getStatus()===400);}
+  await db.run('UPDATE report_deliveries SET message_id=? WHERE id=?','provider-confirmed',f.row.id);await denied();
+  await db.run('UPDATE report_deliveries SET message_id=? WHERE id=?','',f.row.id);
+  await db.run('UPDATE report_access_links SET ativado_em=? WHERE delivery_id=?',new Date().toISOString(),f.row.id);await denied();
+  await db.run('UPDATE report_access_links SET ativado_em=NULL WHERE delivery_id=?',f.row.id);
+  await db.run('UPDATE report_deliveries SET status=?,tentativa_em=? WHERE id=?','ENVIANDO',new Date().toISOString(),f.row.id);await denied();
+  await db.run('UPDATE report_deliveries SET tentativa_em=? WHERE id=?',new Date(Date.now()-11*60_000).toISOString(),f.row.id);
+  const old=(await f.reports.deliveries(f.simuladoId)).entregas[0];assert.equal(old.resolucao_disponivel,true);
+  await f.reports.resolveDelivery(f.simuladoId,old.id,{confirmar:'nao_enviado',versao:old.resolucao_versao});assert.equal(f.messages.length,1);
+});
+
+test('resolução de entrega confirmada ou concorrente não libera uma segunda tentativa',async()=>{
+  const sent=await fixture(),issued=await issue(sent),row=(await sent.reports.deliveries(sent.simuladoId)).entregas[0];
+  await assert.rejects(sent.reports.resolveDelivery(sent.simuladoId,issued.delivery.id,{confirmar:'nao_enviado',versao:row.resolucao_versao}),error=>error.getStatus()===400);
+  const f=await ambiguousFixture();const results=await Promise.allSettled([f.reports.resolveDelivery(f.simuladoId,f.row.id,f.body),f.reports.resolveDelivery(f.simuladoId,f.row.id,f.body)]);
+  assert.equal(results.filter(result=>result.status==='fulfilled').length,1);assert.equal(results.find(result=>result.status==='rejected').reason.getStatus(),409);assert.equal(f.messages.length,1);
+});
+
+test('prévia invalidada enquanto aguarda lock não pode aproveitar uma liberação manual',async()=>{
+  const f=await fixture(),plan=await f.reports.plan(f.simuladoId,[f.resultId]);
+  const lock=f.reports.lockResultsForDelivery.bind(f.reports);
+  f.reports.lockResultsForDelivery=async(...args)=>{await lock(...args);await db.run('DELETE FROM report_delivery_plans WHERE token_hash=?',hash(plan.token));};
+  await assert.rejects(f.reports.send(f.simuladoId,plan.token,'sim'),/invalidado/);assert.equal(f.messages.length,0);
+  assert.equal((await db.all('SELECT * FROM report_deliveries WHERE resultado_id=?',f.resultId)).length,0);
 });
 test('falha de reemissão revoga acesso anterior e deixa novo acesso inativo, sem duplicar registro',async()=>{
   let fail=false;const f=await fixture(async()=>{if(fail) throw new Error('Timeout fictício.');return 'confirmed-fake';}),issued=await issue(f);

@@ -88,6 +88,8 @@ O plano dura 15 minutos e está vinculado ao conteúdo e ao contato. Mudanças e
 
 Uma recusa explícita do EmailJS por limite de requisições/cota (HTTP 429), ou uma validação local que impede a chamada, fica como **Não enviado — nova revisão necessária**. Após resolver o motivo, prepare e confirme uma nova prévia: a entrega existente é reutilizada sem duplicar o histórico, e o link anterior não enviado permanece revogado. A prévia que falhou não pode repetir a tentativa. Timeouts, falhas 5xx e respostas sem confirmação continuam como **Entrega sem confirmação**, exigindo conferência no provedor.
 
+Em **Histórico de entregas**, use **Revisar nova tentativa** para mensagens que não foram enviadas. Nos casos sem confirmação, **Resolver entrega** exige que o professor confira o provedor e confirme que a mensagem não foi enviada; depois abre uma nova prévia do destinatário. A liberação não envia e-mails, preserva a entrega, revoga links nunca ativados e invalida prévias anteriores daquela prova. Entregas confirmadas, com link ativo ou em andamento há menos de dez minutos não podem ser liberadas. Outra conta, inclusive administrativa, não pode resolver entregas alheias; uma versão desatualizada exige atualizar o histórico.
+
 ### Importar avaliações da redação
 
 Na tela **Boletins**, envie o XLSX/CSV exportado das respostas do Google Forms. São reconhecidos os cabeçalhos do modelo institucional: Matrícula do Aluno, Nome Completo do Aluno, Nome do Avaliador, Situação do Texto / Anulação, Competências 1 a 5 e Observações Gerais e Feedback para o Aluno. O modelo recebido em 11/10/2026 contém apenas cabeçalhos; exporte as respostas preenchidas para importar notas.

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, ServiceUnavailableException, Optional, GoneException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException, Inject, Injectable, ServiceUnavailableException, Optional, GoneException, UnauthorizedException } from '@nestjs/common';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import type { ReadingStatus, ThemeScore } from '@enem/shared';
@@ -48,7 +48,20 @@ export function reportLinkText(url:string,expiry:string) {
   return `Olá,\n\nO professor responsável disponibilizou seu boletim do simulado ENEM no sistema de correção do ${INSTITUTION()}.\n\nConsulte o resultado e baixe o PDF: ${url}\n\nEste acesso individual é válido até ${date}. Não compartilhe o link.\n\nSe tiver dúvidas sobre a avaliação ou precisar de um novo acesso, responda a este e-mail.\n\nEquipe de simulados ENEM\n${INSTITUTION()}`;
 }
 
-type DeliveryRow = {id: number; resultado_id: number; destinatario: string; status: ReportDelivery['status']; content_hash: string; message_id: string; erro: string};
+type DeliveryRow = {id: number; resultado_id: number; destinatario: string; status: ReportDelivery['status']; content_hash: string; message_id: string; erro: string; criado_em: string; tentativa_em?: string | null};
+function deliveryVersion(row: DeliveryRow) {
+  return sha256(JSON.stringify([row.id,row.resultado_id,row.destinatario,row.status,row.content_hash,row.message_id || '',row.erro,row.criado_em,row.tentativa_em || '']));
+}
+function deliveryResolution(row: DeliveryRow, activeLinks: number) {
+  let reason = '';
+  if (!['AMBIGUO','ENVIANDO'].includes(row.status)) reason = 'Somente entregas sem confirmação podem ser resolvidas.';
+  else if (row.message_id || activeLinks) reason = 'Há confirmação do provedor ou um link ativo. Confira a mensagem existente antes de reemitir o acesso.';
+  else if (row.status === 'ENVIANDO') {
+    const attempted = Date.parse(row.tentativa_em || row.criado_em);
+    if (!Number.isFinite(attempted) || attempted > Date.now() - 10 * 60_000) reason = 'A entrega ainda pode estar em andamento. Aguarde ao menos 10 minutos após a última tentativa e atualize o histórico.';
+  }
+  return {resolucao_versao:deliveryVersion(row),resolucao_disponivel:!reason,resolucao_motivo:reason};
+}
 type ReservedDelivery = {report: StudentReport; row: DeliveryRow; fresh: boolean; url?: string; expiry?: string; operationHash?: string; planHash?: string};
 export function escapeHtml(value: unknown): string { return String(value ?? '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]!)); }
 function canonicalArea(theme: string): string | undefined {
@@ -322,6 +335,8 @@ export class ReportsService {
       const rows = JSON.parse(saved.payload) as PlanRecord[];
       if (!Array.isArray(rows)) throw new BadRequestException('Este plano não é um plano de envio de boletins.');
       await this.lockResultsForDelivery(simuladoId, rows.map(row => row.resultado_id));
+      // Uma resolução pode invalidar a prévia enquanto esta chamada aguarda o lock.
+      if (!await this.db.get('SELECT token_hash FROM report_delivery_plans WHERE token_hash=? AND simulado_id=?',sha256(token),simuladoId)) throw new BadRequestException('O plano de envio foi invalidado. Revise uma nova prévia antes de enviar.');
       const reports = await Promise.all(rows.map(row => this.report(row.resultado_id)));
       if (reports.some((report, i) => report.simulado_id !== simuladoId || !report.apto_envio || report.content_hash !== rows[i].content_hash || report.email !== rows[i].email || report.matricula !== rows[i].matricula)) throw new BadRequestException('O boletim, a redação ou o contato mudou após a prévia. Revise um novo plano antes de enviar.');
       const entries: ReservedDelivery[] = [];
@@ -444,9 +459,41 @@ export class ReportsService {
     const arquivosRemovidos = await this.simulados.cleanStorage(storageDeadline);
     return {removidos:deleted.changes,...expired,simulados_removidos:simuladosRemovidos,contatos_removidos:contatos.changes,recibos_removidos:uploads.length,arquivos_removidos:arquivosRemovidos};
   }
+  async resolveDelivery(simuladoId: number, deliveryId: number, raw: unknown) {
+    await this.simulados.get(simuladoId);
+    if (!Number.isSafeInteger(deliveryId) || deliveryId <= 0 || !raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['confirmar','versao'].includes(key))) throw new BadRequestException('Confira a entrega e confirme a verificação no provedor.');
+    const body = raw as Record<string,unknown>;
+    if (body.confirmar !== 'nao_enviado' || typeof body.versao !== 'string' || !/^[a-f0-9]{64}$/.test(body.versao)) throw new BadRequestException('Confirme que conferiu o provedor e que a mensagem não foi enviada.');
+    return this.db.transaction(async () => {
+      const found = await this.db.get<DeliveryRow>(`SELECT d.* FROM report_deliveries d JOIN core_resultadoaluno r ON r.id=d.resultado_id
+        JOIN core_lotecorrecao l ON l.id=r.lote_id WHERE d.id=? AND l.simulado_id=?`,deliveryId,simuladoId);
+      if (!found) throw new NotFoundException('Entrega não encontrada neste simulado.');
+      await this.lockResultsForDelivery(simuladoId,[found.resultado_id]);
+      const row = await this.db.get<DeliveryRow>('SELECT * FROM report_deliveries WHERE id=? AND resultado_id=?',deliveryId,found.resultado_id);
+      if (!row || deliveryVersion(row) !== body.versao) throw new ConflictException('Esta entrega mudou. Atualize o histórico e confira os dados novamente.');
+      const links = await this.db.get<{total:number}>('SELECT COUNT(*) AS total FROM report_access_links WHERE delivery_id=? AND ativado_em IS NOT NULL AND revogado_em IS NULL',deliveryId);
+      const state = deliveryResolution(row,Number(links?.total || 0));
+      if (!state.resolucao_disponivel) throw new BadRequestException(state.resolucao_motivo);
+      const now = new Date().toISOString();
+      const reason = 'Nova tentativa liberada pelo professor após conferir no provedor que a mensagem não foi enviada (' + now + '). Motivo anterior: ' + row.erro.slice(0,1500);
+      const changed = await this.db.run(`UPDATE report_deliveries SET status=?,erro=? WHERE id=? AND status=? AND content_hash=? AND destinatario=? AND COALESCE(message_id,'')='' AND COALESCE(tentativa_em,'')=? AND erro=?`,
+        'BLOQUEADO',reason,row.id,row.status,row.content_hash,row.destinatario,row.tentativa_em || '',row.erro);
+      if (!changed.changes) throw new ConflictException('Esta entrega mudou. Atualize o histórico antes de tentar novamente.');
+      await this.db.run('UPDATE report_access_links SET revogado_em=? WHERE delivery_id=? AND ativado_em IS NULL AND revogado_em IS NULL',now,deliveryId);
+      // A liberação não pode permitir que uma confirmação anterior dispare outro envio.
+      const plans = await this.db.all<{token_hash:string;payload:string}>('SELECT token_hash,payload FROM report_delivery_plans WHERE simulado_id=?',simuladoId);
+      for (const plan of plans) {
+        const payload = JSON.parse(plan.payload) as PlanRecord[] | ReissuePlan;
+        if (Array.isArray(payload) ? payload.some(entry => entry.resultado_id === row.resultado_id) : payload.delivery_id === row.id) await this.db.run('DELETE FROM report_delivery_plans WHERE token_hash=? AND simulado_id=?',plan.token_hash,simuladoId);
+      }
+      return {message:'Entrega liberada. Prepare uma nova prévia e confira o destinatário antes de enviar.',resultado_id:row.resultado_id,status:'BLOQUEADO' as const};
+    });
+  }
   async deliveries(simuladoId: number) {
     await this.simulados.get(simuladoId);
-    return {entregas: await this.db.all<DeliveryRow & {matricula: string; criado_em: string}>(`SELECT d.*,r.matricula,(SELECT MAX(a.expira_em) FROM report_access_links a WHERE a.delivery_id=d.id AND a.ativado_em IS NOT NULL AND a.revogado_em IS NULL) AS acesso_expira_em FROM report_deliveries d JOIN core_resultadoaluno r ON r.id=d.resultado_id
-      JOIN core_lotecorrecao l ON l.id=r.lote_id WHERE l.simulado_id=? ORDER BY d.criado_em DESC,d.id DESC`, simuladoId)};
+    const rows = await this.db.all<DeliveryRow & {matricula: string; links_ativos:number}>(`SELECT d.*,r.matricula,(SELECT MAX(a.expira_em) FROM report_access_links a WHERE a.delivery_id=d.id AND a.ativado_em IS NOT NULL AND a.revogado_em IS NULL) AS acesso_expira_em,
+      (SELECT COUNT(*) FROM report_access_links a WHERE a.delivery_id=d.id AND a.ativado_em IS NOT NULL AND a.revogado_em IS NULL) AS links_ativos FROM report_deliveries d JOIN core_resultadoaluno r ON r.id=d.resultado_id
+      JOIN core_lotecorrecao l ON l.id=r.lote_id WHERE l.simulado_id=? ORDER BY d.criado_em DESC,d.id DESC`, simuladoId);
+    return {entregas:rows.map(({links_ativos,...row})=>({...row,...deliveryResolution(row,Number(links_ativos))}))};
   }
 }
