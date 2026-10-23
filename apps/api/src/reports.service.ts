@@ -9,7 +9,7 @@ import { SimuladosService } from './simulados.service';
 import { ContactsService, sha256, validEmail } from './contacts.service';
 import { grade } from './grading';
 import { renderReportPdf } from './reports.pdf';
-import { EmailJsService } from './emailjs.service';
+import { EmailJsService, EmailJsNotSentError } from './emailjs.service';
 import { ProofImportService } from './proof-import.service';
 import { accountId, withAccount } from './account-context';
 
@@ -268,7 +268,7 @@ export class ReportsService {
       if (blocked.changes) {
         await this.db.run('UPDATE report_access_links SET revogado_em=? WHERE delivery_id=? AND operation_hash=? AND ativado_em IS NULL AND revogado_em IS NULL', new Date().toISOString(), entry.row.id, entry.operationHash || '');
         // The failed preview cannot retry itself. Only a newly prepared and
-        // explicitly confirmed plan may reclaim a known pre-provider failure.
+        // explicitly confirmed plan may reclaim a delivery known not to be sent.
         if (entry.planHash) await this.db.run('DELETE FROM report_delivery_plans WHERE token_hash=? AND simulado_id=?', entry.planHash, entry.report.simulado_id);
       }
     });
@@ -294,10 +294,11 @@ export class ReportsService {
         });
         sent++; results.push({resultado_id: report.resultado_id, matricula: report.matricula, email: report.email!, status: 'ENVIADO', message_id: messageId, erro: ''});
       } catch (failure) {
-        if (!providerAttempted) {
-          const detail = failure instanceof BadRequestException ? failure.message : 'Não foi possível validar a reserva. Revise o histórico e prepare uma nova prévia.';
-          const error = 'Envio bloqueado antes de chamar o provedor: ' + detail;
-          try { await this.blockReserved(entry, error); } catch { /* No provider call occurred; preserve the durable reservation if storage is unavailable. */ }
+        if (!providerAttempted || (!messageId && failure instanceof EmailJsNotSentError)) {
+          const rejected = failure instanceof EmailJsNotSentError;
+          const detail = rejected || failure instanceof BadRequestException ? failure.message : 'Não foi possível validar a reserva. Revise o histórico e prepare uma nova prévia.';
+          const error = (rejected ? 'Mensagem não enviada: ' : 'Envio bloqueado antes de chamar o provedor: ') + detail;
+          try { await this.blockReserved(entry, error); } catch { /* No message was accepted; preserve the durable reservation if storage is unavailable. */ }
           results.push({resultado_id: row.resultado_id, matricula: entry.report.matricula, email: row.destinatario, status: 'BLOQUEADO', message_id: '', erro: error});
           continue;
         }

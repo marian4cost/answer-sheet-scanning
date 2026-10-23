@@ -86,6 +86,8 @@ Para enviar, selecione boletins aptos, clique em **Revisar destinatários**, con
 
 O plano dura 15 minutos e está vinculado ao conteúdo e ao contato. Mudanças exigem nova revisão. Entregas do mesmo conteúdo ao mesmo destinatário são idempotentes. Sem confirmação do provedor, o histórico indica a pendência e o sistema não reenvia automaticamente; confira o provedor antes de outra entrega.
 
+Uma recusa explícita do EmailJS por limite de requisições/cota (HTTP 429), ou uma validação local que impede a chamada, fica como **Não enviado — nova revisão necessária**. Após resolver o motivo, prepare e confirme uma nova prévia: a entrega existente é reutilizada sem duplicar o histórico, e o link anterior não enviado permanece revogado. A prévia que falhou não pode repetir a tentativa. Timeouts, falhas 5xx e respostas sem confirmação continuam como **Entrega sem confirmação**, exigindo conferência no provedor.
+
 ### Importar avaliações da redação
 
 Na tela **Boletins**, envie o XLSX/CSV exportado das respostas do Google Forms. São reconhecidos os cabeçalhos do modelo institucional: Matrícula do Aluno, Nome Completo do Aluno, Nome do Avaliador, Situação do Texto / Anulação, Competências 1 a 5 e Observações Gerais e Feedback para o Aluno. O modelo recebido em 11/10/2026 contém apenas cabeçalhos; exporte as respostas preenchidas para importar notas.

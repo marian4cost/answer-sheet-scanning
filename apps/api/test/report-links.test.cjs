@@ -11,6 +11,7 @@ const {ReportsService,ReportEmailGateway,reportLinkHtml} = require('../dist/repo
 const {SimuladosService} = require('../dist/simulados.service.js');
 const {ContactsService} = require('../dist/contacts.service.js');
 const {AuthService} = require('../dist/auth.js');
+const {EmailJsNotSentError} = require('../dist/emailjs.service.js');
 const {grade} = require('../dist/grading.js');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 let db,contacts,simulados,sequence=0;
@@ -121,6 +122,28 @@ test('falha ambígua não ativa link nem repete automaticamente a entrega',async
   await rejectsAccess(f.reports.publicReport(new URL(f.messages[0].url).hash.slice(1)));
   await f.reports.send(f.simuladoId,plan.token,'sim');assert.equal(f.messages.length,1);
   const row=await db.get('SELECT id FROM report_deliveries WHERE resultado_id=?',f.resultId);await assert.rejects(f.reports.planReissue(f.simuladoId,row.id),/confirmadas/);
+});
+
+test('recusa por cota preserva o histórico e só tenta novamente após uma nova prévia confirmada',async()=>{
+  let reject=true;
+  const f=await fixture(async()=>{if(reject) throw new EmailJsNotSentError('O EmailJS recusou o envio por limite de requisições ou cota.');return 'confirmed-after-review';});
+  const plan=await f.reports.plan(f.simuladoId,[f.resultId]);
+  const failed=await f.reports.send(f.simuladoId,plan.token,'sim');
+  assert.equal(failed.total_enviados,0);assert.equal(failed.resultados[0].status,'BLOQUEADO');assert.match(failed.resultados[0].erro,/cota/);
+  const original=await db.get('SELECT * FROM report_deliveries WHERE resultado_id=?',f.resultId);
+  const oldToken=new URL(f.messages[0].url).hash.slice(1);
+  const link=await db.get('SELECT * FROM report_access_links WHERE delivery_id=?',original.id);
+  assert.equal(link.ativado_em,null);assert.ok(link.revogado_em);await rejectsAccess(f.reports.publicReport(oldToken));
+  reject=false;
+  await assert.rejects(f.reports.send(f.simuladoId,plan.token,'sim'),/plano.*expirou|inválido/);assert.equal(f.messages.length,1);
+  const retry=await f.reports.plan(f.simuladoId,[f.resultId]);
+  await assert.rejects(f.reports.send(f.simuladoId,retry.token,'nao'),/confirme/);assert.equal(f.messages.length,1);
+  const results=await Promise.all([f.reports.send(f.simuladoId,retry.token,'sim'),f.reports.send(f.simuladoId,retry.token,'sim')]);
+  assert.equal(results.reduce((sum,result)=>sum+result.total_enviados,0),1);assert.equal(f.messages.length,2);
+  const rows=await db.all('SELECT * FROM report_deliveries WHERE resultado_id=?',f.resultId);
+  assert.equal(rows.length,1);assert.equal(rows[0].id,original.id);assert.equal(rows[0].status,'ENVIADO');
+  await rejectsAccess(f.reports.publicReport(oldToken));
+  assert.equal((await f.reports.publicReport(new URL(f.messages[1].url).hash.slice(1))).boletim.matricula,f.matricula);
 });
 test('falha de reemissão revoga acesso anterior e deixa novo acesso inativo, sem duplicar registro',async()=>{
   let fail=false;const f=await fixture(async()=>{if(fail) throw new Error('Timeout fictício.');return 'confirmed-fake';}),issued=await issue(f);

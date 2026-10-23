@@ -5,7 +5,7 @@ const {tmpdir}=require('node:os');const {join}=require('node:path');
 const temp=mkdtempSync(join(tmpdir(),'enem-emailjs-tests-'));
 process.env.DATABASE_URL='';process.env.DATABASE_PATH=join(temp,'test.sqlite');
 process.env.SUPABASE_URL='https://example.supabase.co';process.env.SUPABASE_ANON_KEY='fake-anon';
-const {EmailJsService}=require('../dist/emailjs.service');const {DatabaseService}=require('../dist/database.service');const {AuthService}=require('../dist/auth');
+const {EmailJsService,EmailJsNotSentError}=require('../dist/emailjs.service');const {DatabaseService}=require('../dist/database.service');const {AuthService}=require('../dist/auth');
 const keys=['EMAILJS_ENABLED','EMAILJS_SERVICE_ID','EMAILJS_TEMPLATE_ID','EMAILJS_PUBLIC_KEY','EMAILJS_PRIVATE_KEY','AUTH_REGISTRATION_ENABLED','SUPABASE_SERVICE_ROLE_KEY'];let saved,db;
 before(()=>{db=new DatabaseService();});after(async()=>{await db.onModuleDestroy();rmSync(temp,{recursive:true,force:true});});
 beforeEach(()=>{saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));Object.assign(process.env,{EMAILJS_ENABLED:'true',EMAILJS_SERVICE_ID:'fake-service',EMAILJS_TEMPLATE_ID:'fake-template',EMAILJS_PUBLIC_KEY:'fake-public',EMAILJS_PRIVATE_KEY:'fake-private',AUTH_REGISTRATION_ENABLED:'true',SUPABASE_SERVICE_ROLE_KEY:'fake-server'});});
@@ -31,6 +31,23 @@ test('EmailJS rejeita destinatários inválidos, cabeçalho injetado e payload a
 test('falhas de provedor não são repetidas automaticamente nem revelam resposta ou chave',async(t)=>{
   let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;return new Response('fake-private sensitive response',{status:429});});
   await assert.rejects(new EmailJsService({get:async()=>({next_at:Date.now()})}).send('a@example.com','Boletim','html'),error=>!/fake-private|sensitive/.test(error.message));assert.equal(calls,1);
+});
+
+test('recusa 429 permite nova revisão, sem expor resposta ou repetir a chamada',async(t)=>{
+  let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;return new Response('fake-private quota response',{status:429});});
+  await assert.rejects(new EmailJsService({get:async()=>({next_at:Date.now()})}).send('a@example.com','Boletim','html'),error=>error instanceof EmailJsNotSentError && /cota/.test(error.message) && !/fake-private|quota response/.test(error.message));
+  assert.equal(calls,1);
+});
+
+test('timeout, 5xx e confirmação inesperada não são classificados como recusa segura',async(t)=>{
+  const service=new EmailJsService({get:async()=>({next_at:Date.now()})});
+  const mock=t.mock.method(globalThis,'fetch',async()=>new Response('falha fictícia',{status:503}));
+  for(const response of [new Response('falha fictícia',{status:503}),new Response('timeout fictício',{status:408}),new Response('resposta inesperada',{status:200})]) {
+    mock.mock.mockImplementation(async()=>response);
+    await assert.rejects(service.send('a@example.com','Boletim','html'),error=>!(error instanceof EmailJsNotSentError));
+  }
+  mock.mock.mockImplementation(async()=>{throw new Error('Timeout fictício.');});
+  await assert.rejects(service.send('a@example.com','Boletim','html'),error=>!(error instanceof EmailJsNotSentError));
 });
 test('limite de código é persistente entre instâncias e não gera novo código no mesmo minuto',async(t)=>{
   let calls=0,lookups=0;t.mock.method(globalThis,'fetch',async(url,options)=>{
