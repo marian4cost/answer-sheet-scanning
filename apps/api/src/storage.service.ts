@@ -2,11 +2,14 @@ import { Injectable, InternalServerErrorException, NotFoundException } from '@ne
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { MAX_FILE_SIZE, MEDIA_ROOT, STORAGE_MODE, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_STORAGE_BUCKET } from './config';
+import { S3Storage } from './s3-storage';
 
 @Injectable()
 export class StorageService {
   private bucketReady?: Promise<void>;
-  readonly privateCloud = STORAGE_MODE === 'supabase';
+  readonly privateCloud = ['supabase','s3'].includes(STORAGE_MODE);
+  private readonly s3 = STORAGE_MODE === 's3' ? new S3Storage() : undefined;
+  uploadHeaders():Record<string,string> { return this.s3 ? {'If-None-Match':'*','x-amz-server-side-encryption':'AES256'} : {}; }
   private safeKey(key: string) {
     if (!key || key.startsWith('/') || key.split('/').some(segment => !segment || segment === '.' || segment === '..') || /[\\\x00-\x1f]/.test(key)) {
       throw new InternalServerErrorException('Identificador de arquivo inválido.');
@@ -36,6 +39,7 @@ export class StorageService {
     try { await this.bucketReady; } catch (error) { this.bucketReady = undefined; throw error; }
   }
   async put(key: string, content: Buffer, contentType = 'application/octet-stream') {
+    if (this.s3) return this.s3.put(key,content,contentType);
     const encoded = this.safeKey(key);
     if (!this.privateCloud) {
       const path = join(MEDIA_ROOT, key);
@@ -49,6 +53,7 @@ export class StorageService {
     if (!response.ok) throw new InternalServerErrorException('Não foi possível guardar o arquivo no armazenamento privado.');
   }
   async get(key: string, maxSize = MAX_FILE_SIZE): Promise<{buffer: Buffer; contentType: string}> {
+    if (this.s3) return this.s3.get(key,maxSize);
     const encoded = this.safeKey(key);
     if (!this.privateCloud) {
       try {
@@ -90,6 +95,7 @@ export class StorageService {
     return SUPABASE_URL.replace(/\/$/, '') + '/storage/v1' + path;
   }
   async signedUploadURL(key: string) {
+    if (this.s3) return this.s3.signedUploadURL(key);
     if (!this.privateCloud) throw new InternalServerErrorException('O upload direto precisa do armazenamento privado.');
     const encoded = this.safeKey(key);
     await this.ensureBucket();
@@ -99,6 +105,7 @@ export class StorageService {
     return this.signedURL((await response.json() as {url?: unknown}).url, prefix);
   }
   async signedDownloadURL(key: string, expiresIn = 120) {
+    if (this.s3) return this.s3.signedDownloadURL(key,expiresIn);
     if (!this.privateCloud) throw new InternalServerErrorException('O processamento remoto precisa do armazenamento privado.');
     const encoded = this.safeKey(key);
     const response = await this.request(`object/sign/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${encoded}`, {method: 'POST',
@@ -107,6 +114,7 @@ export class StorageService {
     return this.signedURL((await response.json() as {signedURL?: unknown}).signedURL, `/object/sign/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/`);
   }
   async remove(key: string) {
+    if (this.s3) return this.s3.remove(key);
     this.safeKey(key);
     if (!this.privateCloud) { await rm(join(MEDIA_ROOT, key), {force: true}); return; }
     const response = await this.request('object/' + encodeURIComponent(SUPABASE_STORAGE_BUCKET), {

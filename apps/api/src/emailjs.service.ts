@@ -2,10 +2,11 @@ import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseService } from './database.service';
 import { validEmail } from './contacts.service';
+import { EmailNotSentError } from './email-errors';
 
 // A recusa explícita e as validações locais garantem que a mensagem não foi aceita.
 // Timeouts, respostas inesperadas e falhas 5xx continuam com confirmação incerta.
-export class EmailJsNotSentError extends ServiceUnavailableException {}
+export class EmailJsNotSentError extends EmailNotSentError {}
 
 @Injectable()
 export class EmailJsService {

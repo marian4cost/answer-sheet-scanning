@@ -1,0 +1,125 @@
+name: sirenia
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+services:
+  db:
+    image: postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sirenia
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate runtime/.env first}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/01-sirenia.sh:ro
+    command: [postgres, -c, shared_buffers=64MB, -c, max_connections=30, -c, work_mem=4MB]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres -d sirenia]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 384m
+    logging: *logging
+  auth:
+    image: supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b
+    restart: unless-stopped
+    depends_on: {db: {condition: service_healthy}}
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${WEB_URL:?}
+      GOTRUE_SITE_URL: ${WEB_URL:?}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${AUTH_DB_PASSWORD:?}@db:5432/sirenia
+      GOTRUE_DB_NAMESPACE: auth
+      GOTRUE_JWT_SECRET: ${AUTH_JWT_SECRET:?}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_DISABLE_SIGNUP: "true"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: "true"
+      GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: 10
+      GOTRUE_SESSIONS_TIMEBOX: 168h
+      GOTRUE_LOG_LEVEL: warn
+    healthcheck:
+      test: [CMD, wget, --no-verbose, --tries=1, --spider, http://127.0.0.1:9999/health]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 192m
+    logging: *logging
+  api:
+    image: sirenia-api:${IMAGE_TAG:-aws}
+    build: {context: ../.., dockerfile: infra/aws/Dockerfile.api}
+    restart: unless-stopped
+    init: true
+    depends_on: {db: {condition: service_healthy}, auth: {condition: service_healthy}}
+    environment:
+      DATABASE_URL: postgres://sirenia_app:${APP_DB_PASSWORD:?}@db:5432/sirenia
+      DATABASE_SSL: "false"
+      AUTH_BASE_URL: http://auth:9999
+      STORAGE_MODE: ${STORAGE_MODE:-s3}
+      EMAIL_PROVIDER: ses
+      WEB_URL: ${WEB_URL:?}
+      CORS_ORIGINS: ${CORS_ORIGINS:?}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?}
+      CRON_SECRET: ${CRON_SECRET:?}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:?}
+      S3_PREFIX: ${S3_PREFIX:-sirenia/}
+      EMAIL_FROM: ${EMAIL_FROM:?}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-sirenia}
+      SES_RATE_PER_SECOND: ${SES_RATE_PER_SECOND:-1}
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-30}
+      REPORT_LINK_TTL_DAYS: ${REPORT_LINK_TTL_DAYS:-7}
+      REPORT_INSTITUTION: ${REPORT_INSTITUTION:-Instituto Federal de Sergipe - Campus Lagarto}
+      # API sem porta pública; somente Next/Nginx da rede privada são proxies.
+      TRUST_PROXY_CIDRS: loopback,uniquelocal
+      OMR_REMOTE_URL: ""
+      OMR_REMOTE_SECRET: ""
+    tmpfs: ["/app/media:uid=10001,gid=10001,mode=0700,size=512m", "/tmp:uid=10001,gid=10001,mode=1777,size=256m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1024m
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 30s
+      start_period: 60s
+      retries: 3
+    logging: *logging
+  web:
+    image: sirenia-web:${IMAGE_TAG:-aws}
+    build: {context: ../.., dockerfile: infra/aws/Dockerfile.web}
+    restart: unless-stopped
+    init: true
+    depends_on: {api: {condition: service_healthy}}
+    ports: ["127.0.0.1:${WEB_BIND_PORT:-3080}:3000"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    logging: *logging
+  cleanup:
+    image: sirenia-api:${IMAGE_TAG:-aws}
+    restart: unless-stopped
+    init: true
+    depends_on: {api: {condition: service_healthy}}
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?}
+    command: [node, infra/aws/cleanup.mjs]
+    mem_limit: 96m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+volumes:
+  postgres:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Backup PostgreSQL SIRENIA para S3
+After=docker.service network-online.target
+Requires=docker.service
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/sirenia
+ExecStart=/bin/bash /opt/sirenia/infra/aws/backup.sh
+UMask=0077

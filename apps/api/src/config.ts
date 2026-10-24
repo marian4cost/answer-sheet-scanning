@@ -12,6 +12,8 @@ export const OMR_REMOTE_URL = process.env.OMR_REMOTE_URL || '';
 export const OMR_REMOTE_SECRET = process.env.OMR_REMOTE_SECRET || '';
 export const STORAGE_MODE = process.env.STORAGE_MODE || 'local';
 export const SUPABASE_URL = process.env.SUPABASE_URL || '';
+// GoTrue pode rodar na rede privada do Docker; o padrão mantém a produção atual.
+export const AUTH_BASE_URL = process.env.AUTH_BASE_URL || (SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, '') + '/auth/v1' : '');
 export const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 export const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'omr-private';
 export const DATABASE_PATH = resolve(PROJECT_ROOT, process.env.DATABASE_PATH || 'db.sqlite3');

@@ -17,8 +17,13 @@
     "node": ">=22.23.0"
   },
   "overrides": {
+    "body-parser": "2.4.0",
+    "multer": "2.5.0",
     "exceljs": {
       "uuid": "^11.1.1"
+    },
+    "@nestjs/platform-express": {
+      "multer": "2.5.0"
     }
   },
   "devDependencies": {

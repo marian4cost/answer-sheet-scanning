@@ -5,7 +5,7 @@ import { rename, rm, readFile } from 'node:fs/promises';
 import type { AnswerKey, AnswerReviewEvent, ReadingStatus, DashboardData, Simulado, SimuladoDetail, Envio, Resultado, ResultsData, UploadResult, OMRReading } from '@enem/shared';
 import { DatabaseService } from './database.service';
 import { OmrService } from './omr.service';
-import { MEDIA_ROOT, STORAGE_MODE } from './config';
+import { MEDIA_ROOT } from './config';
 import { StorageService } from './storage.service';
 import { grade, gradeThemes, indicators, invalidQuestions } from './grading';
 import { questionCount, themeRanges } from './question-config';
@@ -280,7 +280,7 @@ export class SimuladosService {
             erro_msg: 'Não foi possível processar este arquivo. Reenvie uma cópia legível.'};
         }
         if (!matriculas) { entry.matricula = this.detectedMatricula(entry.reading); entry.source = ['pdf_texto','ocr'].includes(entry.reading.matricula_fonte || '') ? entry.reading.matricula_fonte! : 'documento'; }
-        if (STORAGE_MODE === 'supabase') {
+        if (this.storage.privateCloud) {
           await this.storage.put(entry.input, await readFile(join(MEDIA_ROOT, entry.input)), entry.file.mimetype);
           if (entry.reading.debug_image_path) await this.storage.put(entry.debug, await readFile(join(MEDIA_ROOT, entry.debug)), 'image/png');
           // O lote pode somar 1 GB; mantém no disco somente o cartão atual.
@@ -313,8 +313,8 @@ export class SimuladosService {
         message: `${files.length - failed} de ${files.length} provas lidas. O simulado agora tem ${total} provas armazenadas.${failed ? ` ${failed} falha(s) de leitura; confira os detalhes.` : ''}`};
     } finally {
       await this.cleanup([...files, ...downloaded]);
-      if (!committed || STORAGE_MODE === 'supabase') await Promise.all(staged.flatMap(e => [rm(join(MEDIA_ROOT, e.input), {force: true}), rm(join(MEDIA_ROOT, e.debug), {force: true})]));
-      if (!committed && STORAGE_MODE === 'supabase') await Promise.all(staged.flatMap(e => [this.storage.remove(e.input), this.storage.remove(e.debug)]).map(task => task.catch(() => undefined)));
+      if (!committed || this.storage.privateCloud) await Promise.all(staged.flatMap(e => [rm(join(MEDIA_ROOT, e.input), {force: true}), rm(join(MEDIA_ROOT, e.debug), {force: true})]));
+      if (!committed && this.storage.privateCloud) await Promise.all(staged.flatMap(e => [this.storage.remove(e.input), this.storage.remove(e.debug)]).map(task => task.catch(() => undefined)));
     }
   }
   async delete(id: number, confirmation: unknown, expiredOnly = false, deferStorage = false) {

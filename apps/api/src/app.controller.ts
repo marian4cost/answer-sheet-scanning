@@ -28,7 +28,7 @@ export class AppController {
     @Inject(OmrService) private readonly omr: OmrService, @Inject(ExportService) private readonly exporter: ExportService,
     @Inject(DatabaseService) private readonly db: DatabaseService) {}
   @Get('health') async health() { await this.db.health(); return {backend: 'NestJS', database: 'ok', processor: await this.omr.health()}; }
-  @Get('config') config() { return {private_uploads: STORAGE_MODE === 'supabase', min_questoes: 50, max_questoes: 60}; }
+  @Get('config') config() { return {private_uploads: ['supabase','s3'].includes(STORAGE_MODE), min_questoes: 50, max_questoes: 60}; }
   @Post('leituras/gabarito') @UseInterceptors(FileInterceptor('gabarito_pdf', uploadOptions))
   async preview(@UploadedFile() file: Express.Multer.File | undefined, @Body('total_questoes') count: unknown) {
     if (!file) throw new BadRequestException('Selecione a folha do professor.');

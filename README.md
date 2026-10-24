@@ -258,6 +258,12 @@ Esses números são dos casos medidos, **não garantia para toda a população d
 
 Fotos pessoais de regressão ficam locais, em diretórios ignorados pelo Git. CI e integração usam cartões gerados sem nomes, emails ou matrículas reais. Testes de acesso, upload e email simulam serviços externos e não enviam mensagens reais.
 
+## Implantação completa na AWS
+
+O [guia de implantação e operação](docs/GUIA-AWS.md) explica Docker, EC2, PostgreSQL/GoTrue próprios, S3 privado, SES, DNS, migração de contas e arquivos, backup, retenção, testes e rollback. Os arquivos de implantação estão em `infra/aws/`. O ambiente anterior continua compatível: `EMAIL_PROVIDER=ses` e `STORAGE_MODE=s3` são opções explícitas da implantação nova.
+
+Não execute o stack na máquina compartilhada sem conferir memória, serviços e proxy existentes. A publicação AWS aguarda acesso ao Morea-Server03, e o envio SES para destinatários não verificados aguarda liberação de produção pela AWS. O ensaio Docker/S3/SES é separado dos dados reais.
+
 ## Estrutura
 
 ```text
