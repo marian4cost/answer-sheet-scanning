@@ -98,7 +98,7 @@ Cada competência aceita 0 a 200 pontos; a nota geral é a soma de 0 a 1000. Se 
 
 ### Acesso temporário do aluno
 
-O email contém `/boletim#TOKEN`: a página remove o fragmento da barra de endereço e consulta a API por POST. O token de 32 bytes não é guardado no navegador nem em texto claro no banco. A autorização dura sete dias por padrão (`REPORT_LINK_TTL_DAYS`), funciona durante o prazo sem ser consumida no primeiro acesso e bloqueia consultas quando expirada, revogada ou quando o conteúdo foi alterado. A ação **Reemitir link** exige nova revisão e revoga o acesso anterior mantendo a entrega registrada.
+O email contém `/boletim#TOKEN`: a página remove o fragmento da barra de endereço e consulta a API por POST. O token de 32 bytes não é guardado no navegador nem em texto claro no banco. A autorização dura 30 dias por padrão (`REPORT_LINK_TTL_DAYS`), funciona durante o prazo sem ser consumida no primeiro acesso e bloqueia consultas quando expirada, revogada ou quando o conteúdo foi alterado. A ação **Reemitir link** exige nova revisão e revoga o acesso anterior mantendo a entrega registrada.
 
 A autenticação é sempre obrigatória nos recursos do professor. Apenas os POSTs `/api/boletim/consultar` e `/api/boletim/pdf` aceitam acesso do aluno, sempre com token válido. Respostas usam `private, no-store`, sem referrer e sem indexação. A limpeza diária configurada na API Vercel usa `CRON_SECRET` (mínimo 32 caracteres) às 08h UTC: remove autorizações e prévias expiradas, além dos simulados e contatos com retenção vencida. Resultados, redações, entregas e links acompanham a exclusão do simulado; objetos privados são removidos com uma fila persistente para repetir falhas de armazenamento. Nenhum PDF de boletim é persistido na nuvem.
 
@@ -150,7 +150,7 @@ A página pública **Desenvolvedores**, acessível pelo botão **Conhecer os des
 
 ### Histórico por conta e retenção
 
-`DATA_RETENTION_DAYS` define de 1 a 365 dias (padrão: 30). O prazo de cada simulado é fixado no cadastro; resultados, redações e histórico de entregas vencem juntos. A interface mostra a data e recomenda exportar os arquivos. Contatos vencem no mesmo prazo contado da última importação. Novos envios não estendem a retenção de um simulado. Os registros ficam inacessíveis quando vencem; a limpeza diária os exclui do banco e remove os arquivos. As contas de acesso não são excluídas por essa limpeza. Links individuais duram no máximo sete dias e nunca ultrapassam a validade do simulado ou do contato.
+`DATA_RETENTION_DAYS` define de 1 a 365 dias (padrão: 30). O prazo de cada simulado é fixado no cadastro; resultados, redações e histórico de entregas vencem juntos. A interface mostra a data e recomenda exportar os arquivos. Contatos vencem no mesmo prazo contado da última importação. Ao confirmar um envio ou uma reemissão, o simulado e o contato daquele aluno são conservados pelo menos até a expiração do novo link, sem encurtar prazos maiores já existentes. Apenas abrir uma prévia não estende o armazenamento. A extensão ocorre na reserva transacional do envio, inclusive se o provedor posteriormente recusar a mensagem. Os registros ficam inacessíveis quando vencem; a limpeza diária os exclui do banco e remove os arquivos. As contas de acesso não são excluídas por essa limpeza. Links individuais têm 30 dias completos por padrão contados da emissão (`REPORT_LINK_TTL_DAYS`, de 1 a 30). A reemissão revoga o link anterior; a exclusão manual ou alterações no conteúdo/contato continuam bloqueando o acesso imediatamente.
 
 Bancos anteriores à separação mantêm os registros antigos sem dono e sem exposição a contas novas. A migração é explícita, exige uma conta existente com e-mail confirmado e cria um backup privado antes de modificar o banco:
 
@@ -201,7 +201,7 @@ SUPABASE_STORAGE_BUCKET=omr-private
 OMR_REMOTE_URL              URL HTTPS do Python terminada em /api/omr
 OMR_REMOTE_SECRET           segredo aleatório longo, igual ao do Python
 AUTH_REGISTRATION_ENABLED=false  legado; cadastro público sempre bloqueado
-REPORT_LINK_TTL_DAYS=7       prazo do link individual
+REPORT_LINK_TTL_DAYS=30      prazo do link individual
 CRON_SECRET                 segredo da limpeza diária, mínimo 32 caracteres
 app_metadata.role           admin ou professor; papel protegido no Supabase Auth
 WEB_URL                     origem da interface usada no callback /login

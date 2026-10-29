@@ -85,6 +85,68 @@ test('link é reutilizável durante TTL, consulta apenas resultado autorizado e 
   const pdf=await f.reports.publicPdf(issued.token);assert.equal(pdf.subarray(0,5).toString(),'%PDF-');
   assert.equal((await db.get('SELECT token_hash FROM report_access_links WHERE token_hash=?',hash(issued.token))).token_hash,hash(issued.token));
 });
+test('prazo padrão de 30 dias conserva simulado e contato até o fim do acesso e da limpeza diária',async context=>{
+  delete process.env.REPORT_LINK_TTL_DAYS;
+  process.env.CRON_SECRET='ficticio-cron-secret-32-bytes-minimum';
+  try {
+    const f=await fixture(),other=await fixture(),near=new Date(Date.now()+86400_000).toISOString();
+    await db.run('UPDATE core_simulado SET expira_em=? WHERE id IN (?,?)',near,f.simuladoId,other.simuladoId);
+    await db.run('UPDATE student_contacts SET expira_em=? WHERE matricula IN (?,?)',near,f.matricula,other.matricula);
+    const contactBefore=await contacts.get(f.matricula);
+    const issued=await issue(f),link=await db.get('SELECT * FROM report_access_links WHERE token_hash=?',hash(issued.token));
+    assert.equal(Date.parse(link.expira_em)-Date.parse(link.criado_em),30*86400_000);
+    assert.equal((await simulados.get(f.simuladoId)).expira_em,link.expira_em);
+    assert.equal((await contacts.get(f.matricula)).expira_em,link.expira_em);
+    assert.equal((await contacts.get(f.matricula)).atualizado_em,contactBefore.atualizado_em);
+    context.mock.timers.enable({apis:['Date'],now:Date.parse(link.criado_em)+29*86400_000});
+    const clean=await f.reports.cleanupAccess('Bearer '+process.env.CRON_SECRET);
+    assert.ok(clean.simulados_removidos>=1);assert.ok(clean.contatos_removidos>=1);
+    assert.equal(await db.get('SELECT id FROM core_simulado WHERE id=?',other.simuladoId),undefined);
+    assert.equal((await f.reports.publicReport(issued.token)).boletim.matricula,f.matricula);
+    assert.equal((await f.reports.publicPdf(issued.token)).subarray(0,5).toString(),'%PDF-');
+    context.mock.timers.setTime(Date.parse(link.expira_em));
+    await rejectsAccess(f.reports.publicReport(issued.token));
+    await f.reports.cleanupAccess('Bearer '+process.env.CRON_SECRET);
+    assert.equal(await db.get('SELECT id FROM core_simulado WHERE id=?',f.simuladoId),undefined);
+    assert.equal(await db.get('SELECT matricula FROM student_contacts WHERE matricula=?',f.matricula),undefined);
+  } finally {context.mock.timers.reset();process.env.REPORT_LINK_TTL_DAYS='7';process.env.CRON_SECRET='';}
+});
+test('prévia e confirmação inválida não estendem retenção; envio não encurta prazos maiores nem altera outra conta',async()=>{
+  const f=await fixture(),deadline=new Date(Date.now()+60*86400_000).toISOString();
+  await db.run('UPDATE core_simulado SET expira_em=? WHERE id=?',deadline,f.simuladoId);
+  await db.run('UPDATE student_contacts SET expira_em=? WHERE matricula=?',deadline,f.matricula);
+  const otherOwner='22222222-2222-4222-8222-222222222222';
+  await db.run('INSERT INTO student_contacts(matricula,email,nome,atualizado_em,owner_id,expira_em) VALUES(?,?,?,?,?,?)',f.matricula,'outro@example.test','Outro aluno fictício',new Date().toISOString(),otherOwner,deadline);
+  const plan=await f.reports.plan(f.simuladoId,[f.resultId]);
+  await assert.rejects(f.reports.send(f.simuladoId,plan.token,'não'),/confirme/);
+  assert.equal((await contacts.get(f.matricula)).expira_em,deadline);
+  assert.equal((await simulados.get(f.simuladoId)).expira_em,deadline);
+  assert.equal(f.messages.length,0);
+  await f.reports.send(f.simuladoId,plan.token,'sim');
+  assert.equal((await contacts.get(f.matricula)).expira_em,deadline);
+  assert.equal((await simulados.get(f.simuladoId)).expira_em,deadline);
+  assert.equal((await db.get('SELECT expira_em FROM student_contacts WHERE owner_id=? AND matricula=?',otherOwner,f.matricula)).expira_em,deadline);
+});
+test('reemissão de link expirado concede novos 30 dias e revoga somente o acesso anterior da entrega',async context=>{
+  delete process.env.REPORT_LINK_TTL_DAYS;
+  try {
+    const f=await fixture(),issued=await issue(f),other=await fixture(),otherIssued=await issue(other);
+    const original=await db.get('SELECT * FROM report_access_links WHERE token_hash=?',hash(issued.token));
+    await db.run('UPDATE report_access_links SET expira_em=? WHERE token_hash=?',new Date(Date.now()-1).toISOString(),hash(issued.token));
+    context.mock.timers.enable({apis:['Date'],now:Date.parse(original.criado_em)+10*86400_000});
+    const plan=await f.reports.planReissue(f.simuladoId,issued.delivery.id);
+    await f.reports.reissue(f.simuladoId,plan.token,'sim');
+    const token=new URL(f.messages.at(-1).url).hash.slice(1),renewed=await db.get('SELECT * FROM report_access_links WHERE token_hash=?',hash(token));
+    assert.equal(Date.parse(renewed.expira_em)-Date.parse(renewed.criado_em),30*86400_000);
+    assert.ok(Date.parse(renewed.expira_em)>Date.parse(original.expira_em));
+    assert.equal((await simulados.get(f.simuladoId)).expira_em,renewed.expira_em);
+    assert.equal((await contacts.get(f.matricula)).expira_em,renewed.expira_em);
+    await rejectsAccess(f.reports.publicReport(issued.token));
+    assert.equal((await f.reports.publicReport(token)).boletim.matricula,f.matricula);
+    assert.equal((await other.reports.publicReport(otherIssued.token)).boletim.matricula,other.matricula);
+    assert.equal(f.messages.length,2);assert.equal(other.messages.length,1);
+  } finally {context.mock.timers.reset();process.env.REPORT_LINK_TTL_DAYS='7';}
+});
 test('tokens malformados, desconhecidos, inativos, expirados e revogados são negados',async()=>{
   const f=await fixture(),issued=await issue(f);
   for(const token of [null,'',issued.token+'x',randomBytes(32).toString('base64url')]) await rejectsAccess(f.reports.publicReport(token));

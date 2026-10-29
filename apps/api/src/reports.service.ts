@@ -23,7 +23,7 @@ export interface PublicReportAccess {boletim: PublicStudentReport; instituicao: 
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const INVALID_ACCESS_MESSAGE = 'Este link de boletim expirou, foi substituído ou é inválido. Solicite um novo link ao professor.';
 function linkTtl() {
-  const days = Number(process.env.REPORT_LINK_TTL_DAYS || 7);
+  const days = Number(process.env.REPORT_LINK_TTL_DAYS || 30);
   if (!Number.isInteger(days) || days < 1 || days > 30) throw new ServiceUnavailableException('O prazo de acesso aos boletins deve estar entre 1 e 30 dias.');
   return days * 86400_000;
 }
@@ -141,6 +141,11 @@ export class ReportsService {
     if (rawIds.some(id => !Number.isSafeInteger(id) || Number(id) <= 0)) throw new BadRequestException('O plano contém provas inválidas. Revise um novo plano.');
     const ids = [...new Set(rawIds as number[])].sort((a, b) => a - b);
     if (!ids.length) return;
+    // Cleanup locks the simulation before its results. Use the same order when
+    // reserving a delivery and extending the data needed by its public link.
+    const simulation = await this.db.get<{id: number}>('SELECT id FROM core_simulado WHERE id=? AND owner_id=?' +
+      (this.db.dialect === 'postgres' ? ' FOR UPDATE' : ''), simuladoId, accountId());
+    if (!simulation) throw new BadRequestException('O simulado foi removido ou não pertence à sua conta. Revise um novo plano.');
     // Share the same row lock as manual answer review. The report must be read and
     // fingerprinted only after this lock, then ENVIANDO is reserved before commit.
     // Consistent order avoids deadlocks between batches containing the same proofs.
@@ -253,8 +258,15 @@ export class ReportsService {
   private async createAccess(row: DeliveryRow, operationHash: string) {
     const token = randomBytes(32).toString('base64url'), now = new Date();
     const {resultado,simulado} = await this.simulados.result(row.resultado_id);
-    const contact = await this.contacts.get(resultado.matricula) as {expira_em?:string} | undefined;
-    const expiry = new Date(Math.min(now.getTime() + linkTtl(), ...(simulado.expira_em ? [Date.parse(simulado.expira_em)] : []), ...(contact?.expira_em ? [Date.parse(contact.expira_em)] : []))).toISOString();
+    const expiry = new Date(now.getTime() + linkTtl()).toISOString();
+    // Only a confirmed send/reissue reaches this transaction. Keep its source
+    // data until the full link deadline, without shortening a later retention.
+    await this.db.run(`UPDATE core_simulado SET expira_em=CASE WHEN expira_em IS NULL OR expira_em<? THEN ? ELSE expira_em END
+      WHERE id=? AND owner_id=?`, expiry, expiry, simulado.id, accountId());
+    const contact = await this.db.run(`UPDATE student_contacts SET expira_em=CASE WHEN expira_em IS NULL OR expira_em<? THEN ? ELSE expira_em END
+      WHERE matricula=? AND owner_id=? AND email=? AND (expira_em IS NULL OR expira_em>?)`,
+      expiry, expiry, resultado.matricula, accountId(), row.destinatario, now.toISOString());
+    if (!contact.changes) throw new ConflictException('O contato mudou ou expirou. Revise uma nova prévia antes de enviar.');
     const url = accessUrl(token);
     await this.db.run('INSERT INTO report_access_links(token_hash,delivery_id,operation_hash,criado_em,expira_em) VALUES(?,?,?,?,?)', sha256(token), row.id, operationHash, now.toISOString(), expiry);
     return {url, expiry, operationHash};
