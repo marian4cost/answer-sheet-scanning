@@ -138,10 +138,14 @@ test('HTTP resolver entrega exige proprietário e confirmação sem enviar mensa
 test('arquivos locais não são expostos por /media para usuários autenticados',async()=>{
   const response=await fetch(base.replace('/api','')+'/media/debug_images/private.png',{headers:{Authorization:'Bearer a'}});assert.equal(response.status,404);
 });
-test('o prazo do link nunca ultrapassa o prazo do simulado',async()=>{
+test('emitir link conserva os dados até o prazo completo sem alterar outras contas',async()=>{
   const until=new Date(Date.now()+3600_000).toISOString();await db.run('UPDATE core_simulado SET expira_em=? WHERE id=?',until,simA);
   const report=app.get(ReportsService),row=await db.get('SELECT * FROM report_deliveries WHERE resultado_id=?',resultA);
-  const access=await withAccount(accounts.a,()=>report.createAccess(row,'fixture-expiry'));assert.equal(access.expiry,until);
+  const before=await db.get('SELECT expira_em FROM core_simulado WHERE id=?',simB);
+  const access=await withAccount(accounts.a,()=>db.transaction(()=>report.createAccess(row,'fixture-expiry')));
+  assert.ok(Date.parse(access.expiry)>Date.now()+29*86400_000);
+  assert.equal((await db.get('SELECT expira_em FROM core_simulado WHERE id=?',simA)).expira_em,access.expiry);
+  assert.deepEqual(await db.get('SELECT expira_em FROM core_simulado WHERE id=?',simB),before);
 });
 test('registro vencido fica inacessível antes do cron e invalida o link individual',async()=>{
   await db.run('UPDATE core_simulado SET expira_em=? WHERE id=?',new Date(Date.now()-1).toISOString(),simA);

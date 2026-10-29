@@ -81,7 +81,7 @@ services:
       SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-sirenia}
       SES_RATE_PER_SECOND: ${SES_RATE_PER_SECOND:-1}
       DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-30}
-      REPORT_LINK_TTL_DAYS: ${REPORT_LINK_TTL_DAYS:-7}
+      REPORT_LINK_TTL_DAYS: ${REPORT_LINK_TTL_DAYS:-30}
       REPORT_INSTITUTION: ${REPORT_INSTITUTION:-Instituto Federal de Sergipe - Campus Lagarto}
       # API sem porta pública; somente Next/Nginx da rede privada são proxies.
       TRUST_PROXY_CIDRS: loopback,uniquelocal

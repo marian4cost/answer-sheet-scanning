@@ -49,7 +49,7 @@ export function Dashboard() {
   const received = data?.simulados.filter(simulado=>simulado.acesso==='compartilhado')||[];
   return <>
     <div className="page-heading"><div><span className="eyebrow">PAINEL DE CORREÇÃO</span><h1>Seus simulados</h1><p>Cadastre o gabarito oficial, acompanhe a turma e consulte os simulados compartilhados com você.</p></div><div className="summary-pill"><Files size={18}/><strong>{data?.total_provas ?? '—'}</strong> provas acessíveis</div></div>
-    {data?.retencao_dias && <Alert>Seu histórico e seus contatos são privados. Somente os simulados que você compartilhar ficam visíveis aos usuários escolhidos. Os simulados são excluídos automaticamente após {data.retencao_dias} dias do cadastro; o compartilhamento mantém esse prazo.</Alert>}
+    {data?.retencao_dias && <Alert>Seu histórico e seus contatos são privados. Somente os simulados que você compartilhar ficam visíveis aos usuários escolhidos. Os simulados são guardados por {data.retencao_dias} dias após o cadastro. Ao enviar ou reemitir um boletim, o prazo do simulado e do contato correspondente é estendido, se necessário, para cobrir a validade do link. O compartilhamento mantém o prazo existente.</Alert>}
     <div className="dashboard-grid">
       <section className="card create-card"><div className="section-heading"><span className="step">01</span><div><h2>Cadastrar simulado</h2><p>Comece pela folha oficial do professor.</p></div></div>
         <form onSubmit={submit}>
