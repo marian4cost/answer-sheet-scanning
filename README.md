@@ -6,6 +6,8 @@ Corretor de simulados do **Instituto Federal de Sergipe - Campus Lagarto**: inte
 
 O leitor localiza a grade e mede a tinta da própria folha. A chave do professor é usada depois da leitura para comparar respostas e calcular notas. O processamento não escolhe alternativas a partir da chave.
 
+**Vai assumir a implantação na AWS?** Comece pelo [roteiro de entrega ao responsável](docs/ENTREGA-AWS.md), pelo [catálogo completo de variáveis](docs/VARIAVEIS-AMBIENTE.md) e pelo [guia operacional](docs/GUIA-AWS.md). A infraestrutura está na branch `codex/aws-migration`, [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1), até seu merge. Esses arquivos não incluem credenciais reais.
+
 ## Instalação local
 
 Requisitos: **Node.js 22.23+** e **Python 3.12+**, com suporte às wheels de `python/requirements.txt`. PDFs usam PDFium/pypdfium2; não é necessário instalar Poppler ou Django.
@@ -108,13 +110,14 @@ O envio só fica disponível com provedor configurado **no NestJS**:
 
 | Provedor | Variáveis |
 | --- | --- |
+| AWS SES | `EMAIL_PROVIDER=ses`, `AWS_REGION`, `EMAIL_FROM`; opcionais `EMAIL_REPLY_TO`, `SES_CONFIGURATION_SET`, `SES_RATE_PER_SECOND`; credenciais pelo papel da instância |
 | EmailJS | `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY` |
 | SMTP | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` |
 | Resend | `EMAIL_FROM`, `RESEND_API_KEY` |
 
-Use um remetente autorizado pelo provedor. `SMTP_FROM` é alternativa a `EMAIL_FROM`. O padrão SMTP é porta 587 com TLS exigido; 465 ou `SMTP_SECURE=true` usa TLS desde a conexão. Resend tem precedência quando `RESEND_API_KEY` existe. Credenciais não devem ir ao cliente ou a variáveis `NEXT_PUBLIC_*`.
+Use um remetente autorizado pelo provedor. Em `EMAIL_PROVIDER=ses`, somente SES é utilizado, inclusive nos códigos opcionais de acesso, sem fallback para os demais. Em modo `auto` ou ausente, boletins usam EmailJS, depois Resend e SMTP. `SMTP_FROM` é alternativa a `EMAIL_FROM` no modo legado; o SES exige `EMAIL_FROM`. O padrão SMTP é porta 587 com TLS exigido; 465 ou `SMTP_SECURE=true` usa TLS desde a conexão. Credenciais não devem ir ao cliente ou a variáveis `NEXT_PUBLIC_*`.
 
-EmailJS tem precedência. O template exclusivo usa assunto `{{subject}}`, destinatário `{{to_email}}` e HTML `{{{message_html}}}`. Ative **Allow EmailJS API for non-browser applications** com **Use Private Key**. Depois configure `EMAILJS_ENABLED=true` na API (`false` suspende envios). Ative **Do not save private data** no template para não guardar códigos/notas no histórico do provedor. O backend espaça chamadas em pelo menos 1,1 segundo, inclusive entre instâncias na Vercel. O plano gratuito aceita 200 requisições mensais, dois templates e mensagens de até 50 KB, sem anexo. Todos os provedores enviam uma mensagem curta com um link temporário; notas, respostas e PDF não são colocados no email. O PDF é produzido em memória quando o aluno solicita o download. [Limites EmailJS](https://www.emailjs.com/pricing/) e [API oficial](https://www.emailjs.com/docs/rest-api/send/).
+Quando o provedor escolhido for EmailJS, o template exclusivo usa assunto `{{subject}}`, destinatário `{{to_email}}` e HTML `{{{message_html}}}`. Ative **Allow EmailJS API for non-browser applications** com **Use Private Key**. Depois configure `EMAILJS_ENABLED=true` na API (`false` suspende apenas esse provedor). Ative **Do not save private data** no template para não guardar códigos/notas no histórico do provedor. O backend espaça chamadas em pelo menos 1,1 segundo, inclusive entre instâncias na Vercel. O plano gratuito aceita 200 requisições mensais, dois templates e mensagens de até 50 KB, sem anexo. Todos os provedores enviam uma mensagem curta com um link temporário; notas, respostas e PDF não são colocados no email. O PDF é produzido em memória quando o aluno solicita o download. [Limites EmailJS](https://www.emailjs.com/pricing/) e [API oficial](https://www.emailjs.com/docs/rest-api/send/).
 
 Os testes simulam os provedores, sem enviar emails reais. Importar a planilha não envia mensagens. O relatório institucional com aba **Registros** e cabeçalhos **Matrícula**, **Email Acadêmico**, **Nome** e **Descrição do Curso** é reconhecido diretamente. Abas de filtros são ignoradas; duas abas de contatos ou duas colunas de email reconhecidas são rejeitadas por ambiguidade. Matrículas continuam como texto.
 
@@ -260,9 +263,29 @@ Fotos pessoais de regressão ficam locais, em diretórios ignorados pelo Git. CI
 
 ## Implantação completa na AWS
 
-O [guia de implantação e operação](docs/GUIA-AWS.md) explica Docker, EC2, PostgreSQL/GoTrue próprios, S3 privado, SES, DNS, migração de contas e arquivos, backup, retenção, testes e rollback. Os arquivos de implantação estão em `infra/aws/`. O ambiente anterior continua compatível: `EMAIL_PROVIDER=ses` e `STORAGE_MODE=s3` são opções explícitas da implantação nova.
+Documentação de entrega revisada em **30/10/2026**:
 
-Não execute o stack na máquina compartilhada sem conferir memória, serviços e proxy existentes. A publicação AWS aguarda acesso ao Morea-Server03, e o envio SES para destinatários não verificados aguarda liberação de produção pela AWS. O ensaio Docker/S3/SES é separado dos dados reais.
+| Documento | Conteúdo |
+|---|---|
+| [Entrega ao responsável](docs/ENTREGA-AWS.md) | Branch correta, pendências, checklist do corte, links antigos, critérios de aceite e diagnóstico. |
+| [Todas as variáveis de ambiente](docs/VARIAVEIS-AMBIENTE.md) | Obrigatoriedade, formato, padrão, origem dos segredos, valores fixos no Docker, build/runtime e migração. |
+| [Guia de implantação e operação](docs/GUIA-AWS.md) | Comandos para EC2/Docker, PostgreSQL/GoTrue próprios, S3 privado, SES, DNS/HTTPS, migração, backup, atualização e rollback. |
+| [Validação de 24/10](docs/VALIDACAO-AWS-2026-10-24.md) | Evidências e limitações do ensaio Docker/S3/SES; não é confirmação de deploy na EC2. |
+
+Os arquivos de implantação ficam em `infra/aws/`. Next.js, NestJS com Python/OpenCV, PostgreSQL, GoTrue e limpeza rodam no Compose; S3 guarda arquivos privados e SES envia os links. A API e o Auth ficam privados. Login continua obrigatório, contas são criadas pelo administrador e o isolamento por usuário é preservado.
+
+Para preparar a configuração em uma cópia dedicada do projeto, após conferir a infraestrutura com o responsável:
+
+```bash
+node infra/aws/generate-env.mjs
+docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml config --quiet
+```
+
+O gerador cria `infra/aws/runtime/.env` uma única vez, com segredos aleatórios e permissão `600`. Revise domínio, regiões, bucket, remetente e Reply-To conforme o catálogo. Não copie o `.env` da Vercel nem envie esse arquivo ao Git. O Compose fixa `EMAIL_PROVIDER=ses`; o envio não volta silenciosamente para EmailJS. A leitura Python é local à imagem da API, sem função OMR remota.
+
+O padrão é **30 dias para novos links de boletim**, com extensão do simulado/contato para cobrir o acesso; registros existentes não são renovados só por trocar uma variável. Sessões têm refresh de sete dias e, no Auth AWS, timebox de 168 horas. Migre os dados preservando UUIDs/roles/senhas, confira o S3 e mantenha a continuidade dos links já enviados antes de mudar o domínio.
+
+**O deploy AWS ainda não foi concluído.** O último inventário registrou falta de acesso ao Morea-Server03, necessidade de avaliar a máquina compartilhada e SES ainda sem produção liberada. O responsável deve revalidar esses pontos. A produção Vercel/Supabase é preservada até o corte; não iniciar o stack no servidor sem conferir memória, portas e proxy. O [roteiro de entrega](docs/ENTREGA-AWS.md) lista exatamente o que falta e os testes para aceitar a implantação.
 
 ## Estrutura
 
@@ -275,6 +298,10 @@ python/worker.py           worker local JSON
 python/api/omr.py           função remota autenticada
 python/tests/              gerador, regressões e benchmark
 infra/sql/001-schema.sql   schema PostgreSQL e RLS
+infra/aws/                 Docker, Compose, IAM, Nginx, backup e limpeza
+docs/ENTREGA-AWS.md         ponto de entrada para o responsável pela AWS
+docs/VARIAVEIS-AMBIENTE.md  catálogo das configurações e segredos
+docs/GUIA-AWS.md            procedimentos de implantação e operação
 scripts/migrate-postgres.mjs
 legacy/django/             referência local ignorada pelo Git, sem execução
 ```
