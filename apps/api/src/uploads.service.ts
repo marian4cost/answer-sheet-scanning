@@ -37,7 +37,7 @@ export class UploadsService {
       return {id, path: `incoming/${id}${extname(name).toLowerCase()}`, name: name.trim(), size, purpose, created_at: now, consumed_at: null};
     });
     const uploads = [];
-    for (const receipt of receipts) uploads.push({id: receipt.id, name: receipt.name, url: await this.storage.signedUploadURL(receipt.path)});
+    for (const receipt of receipts) uploads.push({id: receipt.id, name: receipt.name, url: await this.storage.signedUploadURL(receipt.path),headers:this.storage.uploadHeaders?.() || {}});
     await this.db.transaction(async () => {
       for (const receipt of receipts) await this.db.run('INSERT INTO uploaded_files(id,path,name,size,purpose,created_at,consumed_at,owner_id) VALUES(?,?,?,?,?,?,?,?)',
         receipt.id, receipt.path, receipt.name, receipt.size, receipt.purpose, receipt.created_at, null, owner);

@@ -1,8 +1,9 @@
 import { BadRequestException, Body, Controller, Get, Inject, Injectable, Post, Res, Req, Optional, UnauthorizedException, ForbiddenException, HttpException, ServiceUnavailableException, ConflictException } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
-import { SUPABASE_URL } from './config';
+import { AUTH_BASE_URL } from './config';
 import { DatabaseService } from './database.service';
 import { EmailJsService } from './emailjs.service';
+import { SesService } from './ses.service';
 import { sha256 } from './contacts.service';
 import { withAccount, currentAccount, type AccountIdentity, type AccountRole } from './account-context';
 
@@ -49,15 +50,15 @@ export function requestToken(request: Request) {
 @Injectable()
 export class AuthService {
   private readonly renewing = new Map<string,Promise<{session:ProviderSession;user:AccountIdentity}>>();
-  constructor(@Optional() @Inject(DatabaseService) private readonly db?: DatabaseService, @Optional() @Inject(EmailJsService) private readonly emailjs?: EmailJsService) {}
-  config() { return {required:true, configured:!!SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY, registration_enabled:false}; }
+  constructor(@Optional() @Inject(DatabaseService) private readonly db?: DatabaseService, @Optional() @Inject(EmailJsService) private readonly emailjs?: EmailJsService, @Optional() @Inject(SesService) private readonly ses?: SesService) {}
+  config() { return {required:true, configured:!!AUTH_BASE_URL && !!process.env.SUPABASE_ANON_KEY, registration_enabled:false}; }
   private async call(path: string, body?: object, token?: string, admin = false, method?: 'GET'|'POST'|'PUT'|'DELETE') {
     if (!this.config().configured) throw new UnauthorizedException('O acesso dos professores ainda não foi configurado.');
     const key = admin ? process.env.SUPABASE_SERVICE_ROLE_KEY : process.env.SUPABASE_ANON_KEY;
     if (!key) throw new ServiceUnavailableException('A administração de contas ainda não foi configurada.');
     let result: globalThis.Response;
     try {
-      result = await fetch(SUPABASE_URL + '/auth/v1/' + path, {method:method || (body ? 'POST' : 'GET'),
+      result = await fetch(AUTH_BASE_URL.replace(/\/$/, '') + '/' + path, {method:method || (body ? 'POST' : 'GET'),
         headers:{apikey:key,'Content-Type':'application/json',...(token || admin ? {Authorization:'Bearer ' + (token || key)} : {})},
         ...(body ? {body:JSON.stringify(body)} : {}), signal:AbortSignal.timeout(10_000)});
     } catch { throw new ServiceUnavailableException('O serviço de acesso não respondeu. Tente novamente.'); }
@@ -114,7 +115,8 @@ export class AuthService {
     const generated = await this.call('admin/generate_link', {type:'magiclink',email}, undefined, true);
     if (typeof generated.email_otp !== 'string' || !/^\d{6,10}$/.test(generated.email_otp)) throw new ServiceUnavailableException('Não foi possível gerar o código de confirmação.');
     const html = `<div style="font:16px Arial,sans-serif;color:#172033;max-width:600px;margin:auto"><p>SIRENIA — Instituto Federal de Sergipe - Campus Lagarto</p><p>Use este código para acessar sua conta:</p><p style="font-size:32px;letter-spacing:5px;font-weight:bold">${generated.email_otp}</p><p>O código é de uso único e expira em até uma hora. Se você não solicitou o acesso, ignore esta mensagem.</p></div>`;
-    await this.emailjs!.send(email,'Seu código de acesso - SIRENIA',html);
+    if (process.env.EMAIL_PROVIDER === 'ses') await this.ses!.send(email,'Seu código de acesso - SIRENIA',html,`SIRENIA — Seu código de acesso: ${generated.email_otp}. O código é de uso único e expira em até uma hora. Se você não solicitou o acesso, ignore esta mensagem.`);
+    else await this.emailjs!.send(email,'Seu código de acesso - SIRENIA',html);
     return {message:'Confira seu e-mail e informe o código de acesso. Ele é de uso único.'};
   }
   // Mantido somente como rejeição explícita para clientes antigos; não há endpoint de cadastro.
@@ -132,12 +134,17 @@ export class AuthService {
     return user;
   }
   async requestCode(value: unknown, ip = 'unknown') {
+    if (process.env.EMAIL_PROVIDER && !['auto','ses'].includes(process.env.EMAIL_PROVIDER)) throw new ServiceUnavailableException('O provedor de e-mail está configurado incorretamente.');
     const email = this.email(value);
     await this.quota('code-ip:' + ip,3600_000,10);
     await this.quota('code-email:' + email,60_000,1);
     // generate_link pode criar usuários; somente o chamamos após confirmar a conta administrada existente.
     const existing = (await this.providerAccounts()).find(user => user.email?.toLowerCase() === email);
     if (!existing || !accountRole(existing) || (existing.banned_until && new Date(existing.banned_until).getTime() > Date.now())) throw new ForbiddenException('Esta conta não tem acesso aos simulados. Solicite uma conta ao administrador.');
+    if (process.env.EMAIL_PROVIDER === 'ses') {
+      if (!this.ses?.configured()) throw new ServiceUnavailableException('O Amazon SES ainda não foi configurado para enviar os códigos.');
+      return this.sendCode(email);
+    }
     if (this.emailjs?.configured()) return this.sendCode(email);
     const web = process.env.WEB_URL || (process.env.CORS_ORIGINS || '').split(',')[0];
     const redirect = web ? '?redirect_to=' + encodeURIComponent(web.replace(/\/$/,'') + '/login') : '';

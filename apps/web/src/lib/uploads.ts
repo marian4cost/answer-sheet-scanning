@@ -3,11 +3,11 @@ import type { ProofImportPlan } from '@enem/shared/src/proof-import';
 import { api, validateFiles } from './api';
 async function privateUploads() { return (await api<{private_uploads: boolean}>('/config')).private_uploads; }
 async function store(files: File[], purpose: 'gabarito' | 'prova') {
-  const result = await api<{uploads: Array<{id: string; url: string; name: string}>}>('/uploads/preparar', {
+  const result = await api<{uploads: Array<{id: string; url: string; name: string;headers?:Record<string,string>}>}>('/uploads/preparar', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({files: files.map(file => ({name: file.name, size: file.size, purpose}))}),
   });
   for (let index = 0; index < files.length; index++) {
-    const response = await fetch(result.uploads[index].url, {method: 'PUT', headers: {'Content-Type': files[index].type || 'application/octet-stream'}, body: files[index]});
+    const response = await fetch(result.uploads[index].url, {method: 'PUT', headers: {...result.uploads[index].headers,'Content-Type': files[index].type || 'application/octet-stream'}, body: files[index]});
     if (!response.ok) throw new Error(`Não foi possível enviar ${files[index].name}. Tente novamente.`);
   }
   return result.uploads.map(upload => upload.id);

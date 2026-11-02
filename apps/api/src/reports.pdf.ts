@@ -92,8 +92,12 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     boxParagraph(methodology,'#fff5df','#e9cf90',7.5);
     if (report.pendencias.length) {heading('Pendências');for (const p of report.pendencias) paragraph(p,8,'#9a6700');}
     if (report.avisos.length) {heading('Observações');for (const p of report.avisos) paragraph(p,8,MUTED);}
-    // Keep the heading, total and competency row together when metadata pushes them near the footer.
-    heading('Redação - avaliação do professor', report.redacao.competencias_redacao?.length === 5 ? 80 : 56);
+    // Reserva também o avaliador, a situação e o início do feedback: sem isso,
+    // uma observação curta podia ficar sozinha numa página quase vazia.
+    const feedback=report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.';
+    const essayMetadata=[report.redacao.avaliador_redacao,report.redacao.situacao_redacao].filter(Boolean).length*24;
+    const essayFollowing=24+(report.redacao.competencias_redacao?.length===5?56:0)+essayMetadata+Math.min(80,height(feedback,width,9)+12);
+    heading('Redação - avaliação do professor',essayFollowing);
     paragraph('Nota: '+(report.redacao.nota_redacao===null?'não informada pelo professor':`${report.redacao.nota_redacao} / 1000`),10,NAVY);
     if (report.redacao.competencias_redacao?.length === 5) {
       const cells = report.redacao.competencias_redacao;
@@ -103,7 +107,7 @@ export function renderReportPdf(report: StudentReport, institution: string): Pro
     }
     if (report.redacao.avaliador_redacao) paragraph('Avaliador: '+report.redacao.avaliador_redacao,8,MUTED);
     if (report.redacao.situacao_redacao) paragraph('Situação do texto: '+report.redacao.situacao_redacao,8,MUTED);
-    paragraph(report.redacao.feedback_redacao || 'Feedback ainda não informado pelo professor.');
+    paragraph(feedback);
     newPage();
     text('DETALHAMENTO DA CORREÇÃO',left,y,width,9,BLUE,true);y+=20;
     text('Questão por questão',left,y,width,21,NAVY,true);y+=37;

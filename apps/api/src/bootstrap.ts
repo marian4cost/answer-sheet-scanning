@@ -11,7 +11,7 @@ import { AuthService } from './auth';
 export async function createApplication(logger = true) {
   for (const path of ['.staging', 'uploads', 'debug_images']) mkdirSync(join(MEDIA_ROOT, path), {recursive: true});
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {logger: logger ? undefined : false});
-  app.set('trust proxy', process.env.VERCEL ? 1 : 'loopback');
+  app.set('trust proxy', process.env.VERCEL ? 1 : process.env.TRUST_PROXY_CIDRS?.split(',').map(value=>value.trim()).filter(Boolean) || 'loopback');
   const origins = [`http://localhost:${WEB_PORT}`, `http://127.0.0.1:${WEB_PORT}`, ...(process.env.CORS_ORIGINS || process.env.WEB_URL || '').split(',').map(value => value.trim()).filter(Boolean)];
   app.enableCors({origin: origins, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], allowedHeaders: ['Content-Type', 'X-OMR-Client', 'Authorization']});
   app.use(app.get(AuthService).middleware());

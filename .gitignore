@@ -35,3 +35,4 @@ sample_pdfs/
 *.pem
 *.key
 credentials*.json
+infra/aws/runtime/

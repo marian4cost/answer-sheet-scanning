@@ -1,0 +1,6 @@
+{
+  "Rules": [
+    {"ID":"sirenia-data-30-days","Status":"Enabled","Filter":{"Prefix":"sirenia/"},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}},
+    {"ID":"sirenia-backup-7-days","Status":"Enabled","Filter":{"Prefix":"sirenia/backups/"},"Expiration":{"Days":7}}
+  ]
+}

@@ -9,7 +9,9 @@ import { SimuladosService } from './simulados.service';
 import { ContactsService, sha256, validEmail } from './contacts.service';
 import { grade } from './grading';
 import { renderReportPdf } from './reports.pdf';
-import { EmailJsService, EmailJsNotSentError } from './emailjs.service';
+import { EmailJsService } from './emailjs.service';
+import { EmailNotSentError } from './email-errors';
+import { SesService } from './ses.service';
 import { ProofImportService } from './proof-import.service';
 import { accountId, withAccount } from './account-context';
 
@@ -95,8 +97,12 @@ export function reportHtml(report: StudentReport, attachment = true): string {
 
 @Injectable()
 export class ReportEmailGateway {
-  constructor(@Optional() @Inject(EmailJsService) private readonly emailjs?: EmailJsService) {}
+  constructor(@Optional() @Inject(EmailJsService) private readonly emailjs?: EmailJsService, @Optional() @Inject(SesService) private readonly ses?: SesService) {}
   availability(): {envio_disponivel: boolean; envio_motivo: string} {
+    if (process.env.EMAIL_PROVIDER && !['auto','ses'].includes(process.env.EMAIL_PROVIDER)) return {envio_disponivel:false,envio_motivo:'EMAIL_PROVIDER deve ser auto ou ses.'};
+    if (process.env.EMAIL_PROVIDER === 'ses') return this.ses?.configured()
+      ? {envio_disponivel:true,envio_motivo:'Envio configurado por Amazon SES. Mensagem com link individual; boletim e PDF disponíveis no site.'}
+      : {envio_disponivel:false,envio_motivo:'Configure AWS_REGION e EMAIL_FROM para usar o Amazon SES.'};
     if (this.emailjs?.configured()) return {envio_disponivel:true, envio_motivo:'Envio configurado por EmailJS. Mensagem com link temporário; boletim e PDF disponíveis no site.'};
     const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || '';
     const fromAddress = from.match(/<([^<>]+)>$/)?.[1] || from;
@@ -111,6 +117,7 @@ export class ReportEmailGateway {
     const subject = 'Boletim do simulado ENEM - IFS Lagarto';
     const html = reportLinkHtml(url, expiry);
     const text = reportLinkText(url,expiry);
+    if (process.env.EMAIL_PROVIDER === 'ses') return this.ses!.send(report.email!,subject,html,text,idempotencyKey);
     if (this.emailjs?.configured()) return this.emailjs.send(report.email!, subject, html, {message_text:text});
     if (process.env.RESEND_API_KEY) {
       const response = await fetch('https://api.resend.com/emails', {method: 'POST', headers: {Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey},
@@ -319,8 +326,8 @@ export class ReportsService {
         });
         sent++; results.push({resultado_id: report.resultado_id, matricula: report.matricula, email: report.email!, status: 'ENVIADO', message_id: messageId, erro: ''});
       } catch (failure) {
-        if (!providerAttempted || (!messageId && failure instanceof EmailJsNotSentError)) {
-          const rejected = failure instanceof EmailJsNotSentError;
+        if (!providerAttempted || (!messageId && failure instanceof EmailNotSentError)) {
+          const rejected = failure instanceof EmailNotSentError;
           const detail = rejected || failure instanceof BadRequestException ? failure.message : 'Não foi possível validar a reserva. Revise o histórico e prepare uma nova prévia.';
           const error = (rejected ? 'Mensagem não enviada: ' : 'Envio bloqueado antes de chamar o provedor: ') + detail;
           try { await this.blockReserved(entry, error); } catch { /* No message was accepted; preserve the durable reservation if storage is unavailable. */ }

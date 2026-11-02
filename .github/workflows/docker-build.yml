@@ -1,0 +1,76 @@
+name: Build e smoke test Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+
+jobs:
+  build:
+    name: Docker ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        service: [api, web]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validar Compose com configuração descartável
+        run: |
+          node infra/aws/generate-env.mjs
+          docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml config --quiet
+      - name: Preparar Buildx com limites de recursos
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: |
+            memory=3g
+            memory-swap=3g
+            cpu-period=100000
+            cpu-quota=200000
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+      - name: Compilar e carregar a imagem sem publicar
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infra/aws/Dockerfile.${{ matrix.service }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: sirenia-${{ matrix.service }}:ci
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=sirenia-${{ matrix.service }}
+          cache-to: type=gha,mode=min,scope=sirenia-${{ matrix.service }}
+      - name: Verificar imagem e aplicação empacotadas
+        env:
+          IMAGE: sirenia-${{ matrix.service }}:ci
+          SERVICE: ${{ matrix.service }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          test "$(docker image inspect "$IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$EXPECTED_REVISION"
+          bash scripts/test-docker-image.sh "$SERVICE" "$IMAGE"
+      - name: Remover a imagem de teste do runner
+        if: always()
+        env:
+          IMAGE: sirenia-${{ matrix.service }}:ci
+        run: |
+          docker image rm "$IMAGE" || true
+          rm -f infra/aws/runtime/.env
