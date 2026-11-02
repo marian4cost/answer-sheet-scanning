@@ -1,6 +1,6 @@
 # Variáveis de ambiente do SIRENIA
 
-Catálogo conferido com o código, Dockerfiles, Compose e scripts em **30/10/2026**. Comece pelo [roteiro de entrega AWS](ENTREGA-AWS.md); os procedimentos estão no [guia operacional](GUIA-AWS.md).
+Catálogo conferido com o código, Dockerfiles, Compose e scripts; domínio público atualizado em **02/11/2026** para `https://sirenia.morea-ifs.org`. Comece pelo [roteiro de entrega AWS](ENTREGA-AWS.md); os procedimentos estão no [guia operacional](GUIA-AWS.md).
 
 ## Onde configurar
 
@@ -29,8 +29,8 @@ As linhas abaixo são geradas pelo script. Valores reais de segredos nunca entra
 | `SUPABASE_ANON_KEY` | Sim / manter no servidor neste stack | JWT gerado com role `anon` | NestJS chama o GoTrue. Não usar a chave do Supabase de origem no Auth novo. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Sim / segredo administrativo | JWT gerado com role `service_role` | Provisionamento de contas e operações administrativas no Auth novo; nunca `NEXT_PUBLIC_*`. |
 | `CRON_SECRET` | Sim / segredo | Aleatório, 64 caracteres hexadecimais; mínimo aceito: 32 | Mesmo valor em `api` e `cleanup`; autoriza a limpeza periódica. |
-| `WEB_URL` | Sim / não | `https://sirenia.mage.dev.br` | Origem pública HTTPS, sem `/api`; usada nos links dos alunos e no Auth. |
-| `CORS_ORIGINS` | Sim / não | `https://sirenia.mage.dev.br` | Origens exatas, separadas por vírgula e sem barra final. Atualizar se mudar o domínio. Não usar `*`. |
+| `WEB_URL` | Sim / não | `https://sirenia.morea-ifs.org` | Origem pública HTTPS, sem `/api`; usada nos links dos alunos e no Auth. |
+| `CORS_ORIGINS` | Sim / não | `https://sirenia.morea-ifs.org` | Origens exatas, separadas por vírgula e sem barra final. Atualizar se mudar o domínio. Não usar `*`. |
 | `AWS_REGION` | Sim / não | `us-east-2` | Região do SES e alternativa de região para S3. Identidade, cota e configuration set do SES devem existir nela. |
 | `S3_REGION` | Sim / não | `us-east-1` | Região real do bucket existente; é diferente da região do SES. |
 | `S3_BUCKET` | Sim / não | `morea` | Bucket existente e privado; o código não cria o bucket nem altera a política. |
@@ -157,6 +157,17 @@ Na EC2, use o papel da instância com IMDSv2; a aplicação utiliza a cadeia pad
 | `AWS_EC2_METADATA_DISABLED` | Não definir `true` na EC2: impediria o SDK de obter o papel da instância. Conferir IMDSv2 e o hop limit adequado ao Docker com o responsável. |
 | `COMPOSE_PROJECT_NAME` | Não sobrescrever `sirenia` na instalação fornecida; scripts de backup e teste dependem dos nomes resultantes. |
 | `BASH_SOURCE` | Variável automática do Bash usada pelo backup para localizar o projeto. Não preencher no dotenv. |
+
+### Variáveis internas do workflow Docker
+
+Não são entradas de produção nem devem ser colocadas no dotenv AWS.
+
+| Variável | Origem / finalidade |
+|---|---|
+| `DOCKER_BUILD_RECORD_UPLOAD` | Workflow: `false`, evita guardar o empacotamento binário do build como artefato. O cache mínimo de camadas continua disponível para builds seguintes. |
+| `IMAGE`, `SERVICE` | Workflow: tag local `sirenia-api:ci`/`sirenia-web:ci` e serviço `api`/`web`, definidos pela matriz estática. |
+| `EXPECTED_REVISION` | Workflow: commit do GitHub, comparado ao label OCI da imagem recém-construída. |
+| `TEST_SERVICE` | Script de smoke test: repassado ao processo Node do contêiner para selecionar as verificações da API ou web. |
 
 ## Arquivos de migração e preservação de acesso
 

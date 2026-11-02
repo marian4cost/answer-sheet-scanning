@@ -1,13 +1,13 @@
 # SIRENIA na AWS: implantação, migração e operação
 
-Procedimentos revisados em **30/10/2026**. Para assumir a instalação, comece pelo [roteiro de entrega](ENTREGA-AWS.md) e pelo [catálogo de todas as variáveis](VARIAVEIS-AMBIENTE.md). O inventário de recursos abaixo mantém sua data original; o responsável precisa confirmá-lo na conta antes do corte. A infraestrutura está em `codex/aws-migration` até o merge do [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1).
+Procedimentos atualizados em **02/11/2026**. Para assumir a instalação, comece pelo [roteiro de entrega](ENTREGA-AWS.md) e pelo [catálogo de todas as variáveis](VARIAVEIS-AMBIENTE.md). O inventário abaixo mantém sua data original; o responsável precisa confirmá-lo na conta. A infraestrutura integra a `main` pela [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1). O responsável já publicou `https://sirenia.morea-ifs.org`; a primeira verificação HTTP apontou pendências de origem/Auth, detalhadas no roteiro. Os comandos de instalação continuam como referência; preserve a configuração de proxy e os dados que o operador já colocou em uso.
 
 ## O que cada serviço faz
 
 - **EC2** é a máquina Linux. Docker executa Next.js (site), NestJS (API + Python/OpenCV), PostgreSQL e GoTrue (autenticação) em contêineres separados. Um quinto contêiner faz a limpeza periódica.
 - **S3** guarda as provas e imagens de revisão em um bucket privado. O prefixo `sirenia/` separa os arquivos dos outros projetos do bucket `morea`.
 - **SES** envia os códigos de acesso e os links individuais dos boletins. A aplicação registra o MessageId real aceito pela AWS.
-- **Registro.br** administra o DNS. O sistema usará `sirenia.mage.dev.br`; o remetente será `boletins@mage.dev.br`, com resposta para `officegenisson@gmail.com`.
+- **Registro.br** administra o DNS. O sistema usará `sirenia.morea-ifs.org`; o remetente será `boletins@mage.dev.br`, com resposta para `officegenisson@gmail.com`.
 - **Nginx e Let's Encrypt**, no servidor, terminam o HTTPS e encaminham somente esse domínio ao Next.js em `127.0.0.1:3080`.
 
 PostgreSQL, GoTrue e Nest não publicam portas na máquina. O navegador usa o mesmo domínio para o site e `/api`. As chaves administrativas permanecem no servidor. Docker facilita reproduzir versões e atualizar; ele não aumenta a memória disponível nem substitui backups.
@@ -175,13 +175,13 @@ Uma resposta aceita do SES significa aceitação pelo provedor, não leitura pel
 
 ## 7. Publicar o site no domínio
 
-Somente depois da instalação e verificação, crie no Registro.br um registro A de `sirenia.mage.dev.br` para o IP autorizado da EC2. O IP atual não foi convertido em Elastic IP; confirme sua estabilidade com a equipe antes de usá-lo como endereço definitivo.
+Somente depois da instalação e verificação, crie no Registro.br um registro A de `sirenia.morea-ifs.org` para o IP autorizado da EC2. O IP atual não foi convertido em Elastic IP; confirme sua estabilidade com a equipe antes de usá-lo como endereço definitivo.
 
 Integre `infra/aws/nginx-sirenia.conf` ao proxy existente, em um arquivo de site separado. Emita o certificado Let's Encrypt pelo procedimento já usado pela equipe. Não habilite a configuração HTTPS antes de o certificado existir. Valide com `sudo nginx -t` e recarregue o serviço; não sobrescreva os virtual hosts dos outros projetos.
 
 ```bash
 docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml up -d
-curl --fail https://sirenia.mage.dev.br/api/health
+curl --fail https://sirenia.morea-ifs.org/api/health
 ```
 
 Abra o navegador, entre com uma conta migrada, confirme simulados/contatos/arquivos e faça um envio para um destinatário de teste aprovado. Só então encerre a janela de manutenção da produção anterior. Mantenha o ambiente anterior disponível para rollback, sem permitir escrita simultânea em duas bases.
@@ -189,6 +189,19 @@ Abra o navegador, entre com uma conta migrada, confirme simulados/contatos/arqui
 Os links de boletim já enviados continuam apontando ao domínio Vercel original. `WEB_URL` só altera novos links: a migração de banco não redireciona os antigos e só armazena seus hashes. Preserve e teste a rota antiga até o último vencimento, encaminhando ao mesmo ambiente de dados ou planejando reemissão com revisão. O [roteiro de entrega](ENTREGA-AWS.md) detalha esse ponto de corte; não desligue a origem presumindo que o DNS novo resolveu links antigos.
 
 ## 8. Testes reproduzíveis
+
+O GitHub executa `ci.yml` para compilar/testar a aplicação e `docker-build.yml` para construir as imagens e fazer smoke tests. O workflow Docker usa permissões somente de leitura, ações fixadas por SHA, `linux/amd64`, um build de imagem por vez e BuildKit limitado a dois trabalhos. Não há push para registry nem deploy automático por esse workflow. O smoke test roda sem rede externa, portas publicadas ou volumes, com limites de CPU/memória, e remove somente o contêiner que criou.
+
+Para repetir o smoke test em imagens de teste já construídas:
+
+```bash
+bash scripts/test-docker-image.sh api sirenia-api:aws
+bash scripts/test-docker-image.sh web sirenia-web:aws
+```
+
+Ele confere usuário sem root, ausência de arquivos privados, servidor standalone, worker OpenCV/PDFium, schema/fontes PDF e bloqueio de acesso/origens não autorizados. O SQLite desse teste é temporário e não substitui o aceite do PostgreSQL, Auth e SES reais.
+
+O incidente GitGuardian `38956690` foi revisado em 02/11: o detector marcou o sufixo literal `?}@db:5432/sirenia` das duas URIs com interpolação de variável no Compose. Classificado no painel como **Not a secret (false positive)**. O arquivo versionado contém referências `${AUTH_DB_PASSWORD:?}`/`${APP_DB_PASSWORD:?}`, e o gerador escreve os valores reais somente no dotenv privado. O scanner permanece ativo; não foram adicionadas exclusões gerais nem alteradas senhas de produção para resolver esse falso positivo.
 
 ```bash
 npm ci

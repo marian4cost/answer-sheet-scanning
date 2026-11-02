@@ -6,7 +6,7 @@ Corretor de simulados do **Instituto Federal de Sergipe - Campus Lagarto**: inte
 
 O leitor localiza a grade e mede a tinta da própria folha. A chave do professor é usada depois da leitura para comparar respostas e calcular notas. O processamento não escolhe alternativas a partir da chave.
 
-**Vai assumir a implantação na AWS?** Comece pelo [roteiro de entrega ao responsável](docs/ENTREGA-AWS.md), pelo [catálogo completo de variáveis](docs/VARIAVEIS-AMBIENTE.md) e pelo [guia operacional](docs/GUIA-AWS.md). A infraestrutura está na branch `codex/aws-migration`, [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1), até seu merge. Esses arquivos não incluem credenciais reais.
+**Vai assumir a implantação na AWS?** Comece pelo [roteiro de entrega ao responsável](docs/ENTREGA-AWS.md), pelo [catálogo completo de variáveis](docs/VARIAVEIS-AMBIENTE.md) e pelo [guia operacional](docs/GUIA-AWS.md). A infraestrutura integra a `main` pela [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1). Esses arquivos não incluem credenciais reais.
 
 ## Instalação local
 
@@ -261,9 +261,11 @@ Esses números são dos casos medidos, **não garantia para toda a população d
 
 Fotos pessoais de regressão ficam locais, em diretórios ignorados pelo Git. CI e integração usam cartões gerados sem nomes, emails ou matrículas reais. Testes de acesso, upload e email simulam serviços externos e não enviam mensagens reais.
 
+Há dois workflows no GitHub Actions: [ci.yml](.github/workflows/ci.yml) compila a aplicação e executa os testes; [docker-build.yml](.github/workflows/docker-build.yml) constrói as imagens `api` e `web`, uma por vez, para `linux/amd64`. O segundo carrega as imagens apenas no runner e executa [smoke tests isolados](scripts/test-docker-image.sh), sem publicar portas, usar volumes ou acessar AWS. Confere Next.js standalone, NestJS, OpenCV/PDFium, recursos de PDF, autenticação obrigatória e validação de origem. As imagens recebem o commit no label `org.opencontainers.image.revision`. Esse workflow **não faz deploy nem publica imagens em registry**; Vini precisa reconstruir/atualizar o servidor a partir do commit aprovado.
+
 ## Implantação completa na AWS
 
-Documentação de entrega revisada em **30/10/2026**:
+Documentação de entrega atualizada em **02/11/2026**; domínio publicado pelo responsável: [sirenia.morea-ifs.org](https://sirenia.morea-ifs.org/).
 
 | Documento | Conteúdo |
 |---|---|
@@ -285,7 +287,7 @@ O gerador cria `infra/aws/runtime/.env` uma única vez, com segredos aleatórios
 
 O padrão é **30 dias para novos links de boletim**, com extensão do simulado/contato para cobrir o acesso; registros existentes não são renovados só por trocar uma variável. Sessões têm refresh de sete dias e, no Auth AWS, timebox de 168 horas. Migre os dados preservando UUIDs/roles/senhas, confira o S3 e mantenha a continuidade dos links já enviados antes de mudar o domínio.
 
-**O deploy AWS ainda não foi concluído.** O último inventário registrou falta de acesso ao Morea-Server03, necessidade de avaliar a máquina compartilhada e SES ainda sem produção liberada. O responsável deve revalidar esses pontos. A produção Vercel/Supabase é preservada até o corte; não iniciar o stack no servidor sem conferir memória, portas e proxy. O [roteiro de entrega](docs/ENTREGA-AWS.md) lista exatamente o que falta e os testes para aceitar a implantação.
+**O site já foi publicado na AWS pelo responsável, mas o aceite funcional ainda está pendente.** Na verificação de 02/11, site e `/api/health` responderam, enquanto o login apresentou origem não autorizada e `/api/auth/config` retornou `configured:false`. Depois de atualizar a `main`, é necessário reconstruir as imagens e passar as variáveis ao contêiner: `WEB_URL`/`CORS_ORIGINS` com `https://sirenia.morea-ifs.org`, endpoint Auth e chaves correspondentes. O gerador não sobrescreve o arquivo de ambiente existente; atualizar o código não corrige automaticamente um dotenv antigo. Revalidar migração de dados/contas, capacidade e liberação SES antes de enviar à turma. O [roteiro de entrega](docs/ENTREGA-AWS.md) mantém o checklist de aceite e a continuidade dos links anteriores.
 
 ## Estrutura
 

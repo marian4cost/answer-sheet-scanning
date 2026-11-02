@@ -1,6 +1,6 @@
 # Entrega do SIRENIA ao responsável pela AWS
 
-Revisão da documentação: **30/10/2026**. Este documento permite assumir a instalação; não declara que o corte de produção foi executado.
+Revisão da documentação: **02/11/2026**. O responsável publicou o site em `https://sirenia.morea-ifs.org`; a validação completa de login, dados e entrega de boletins ainda é necessária.
 
 ## Comece aqui
 
@@ -8,10 +8,10 @@ Revisão da documentação: **30/10/2026**. Este documento permite assumir a ins
 2. Siga o [guia de implantação e operação](GUIA-AWS.md): instalação, migração, DNS/HTTPS, testes, backup e rollback.
 3. Use a [validação histórica de 24/10](VALIDACAO-AWS-2026-10-24.md) como evidência do ensaio, não como aprovação do servidor de produção.
 
-Código: [GenissonEmilio/enem-leitor](https://github.com/GenissonEmilio/enem-leitor), repositório privado. A infraestrutura AWS e estes documentos estão na branch **`codex/aws-migration`**, no [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1), ainda em rascunho na revisão de 30/10. Clonar apenas `main` antes do merge não inclui necessariamente a implantação AWS. O responsável deve ter acesso ao repositório e registrar o commit exato escolhido.
+Código: [GenissonEmilio/enem-leitor](https://github.com/GenissonEmilio/enem-leitor), repositório privado. A infraestrutura AWS integra a **`main`** pela [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1). O responsável deve atualizar o checkout usado no build e reconstruir as imagens; uma imagem construída da `main` anterior ao merge não reconhece `AUTH_BASE_URL` nem inclui SES/S3. Registre o commit exato do build.
 
 ```bash
-git clone --branch codex/aws-migration --single-branch https://github.com/GenissonEmilio/enem-leitor.git sirenia
+git clone --branch main --single-branch https://github.com/GenissonEmilio/enem-leitor.git sirenia
 cd sirenia
 git rev-parse HEAD
 ```
@@ -21,16 +21,17 @@ git rev-parse HEAD
 | Item | Estado conhecido / próxima ação |
 |---|---|
 | Aplicação | Next.js, NestJS/Python/OpenCV, PostgreSQL e GoTrue em Docker Compose; S3 e SES integrados. |
-| Produção atual | Vercel + Supabase; a última verificação de envio em 29/10 foi pelo EmailJS. Não foi migrada para EC2. |
+| Site AWS | Publicado pelo responsável em `https://sirenia.morea-ifs.org`. Em 02/11, `/api/health` respondeu; login com origem recusada e Auth `configured:false`. Atualizar código/imagens e variáveis antes de considerar funcional. |
+| Ambiente anterior | Vercel + Supabase; último envio verificado em 29/10 pelo EmailJS. Preservar até conferir migração e links antigos. |
 | Servidor proposto | Morea-Server03, `i-0ae9e50d65f455e35`, Debian, conta MOREA, `us-east-2`. Inventário de 24/10: 2 GB; confirmar a reserva da máquina e medir a capacidade compartilhada. |
-| Acesso | A sessão do desenvolvedor não tinha SSH/SSM; instalação na EC2 não foi realizada. O responsável deve usar seu próprio acesso autorizado. |
+| Acesso | A sessão do desenvolvedor não tinha SSH/SSM no inventário inicial. O responsável conduziu a publicação com seu acesso; usar esse acesso autorizado para atualizar o servidor. |
 | S3 | Bucket existente `morea`, `us-east-1`, prefixo `sirenia/`. Confirmar permissões, CORS e lifecycle sem substituir regras de outros projetos. |
 | SES | Região `us-east-2`, domínio `mage.dev.br`, remetente `boletins@mage.dev.br`, configuration set `sirenia`. No inventário de 24/10 o pedido de produção havia sido negado, caso `179288506200738`; verificar o estado atual e tratar com o suporte. |
-| Domínio do site | Planejado: `https://sirenia.mage.dev.br`. DNS A e HTTPS do site ainda dependem do servidor; autenticação DNS de e-mail foi configurada anteriormente. |
+| Domínio do site | Atual: `https://sirenia.morea-ifs.org`. `WEB_URL`, `CORS_ORIGINS`, CORS de upload no S3 e proxy precisam corresponder ao domínio. O domínio de e-mail continua `mage.dev.br`. |
 | Segredos | Gerador disponível; valores reais não estão no Git. Credenciais da origem necessárias à migração devem ser entregues por canal privado. |
-| Dados/contas | Scripts de migração disponíveis, sem corte dos dados reais executado. Não criar contas de teste no destino final antes de migrar. |
+| Dados/contas | Scripts de migração disponíveis; conclusão da migração real ainda não verificada pelo desenvolvedor. Não criar contas de teste no destino final antes de migrar. |
 
-Esses estados são o último inventário documentado, não uma consulta atual à conta AWS. Revalidar antes da instalação. Não é necessário manter Vercel ou Supabase gerenciado após uma migração completa e o encerramento planejado da compatibilidade dos links antigos.
+Os dados de recursos/IAM/SES são do inventário original e precisam ser revalidados na conta AWS; as observações HTTP são de 02/11. Não é necessário manter Vercel ou Supabase gerenciado após uma migração completa e o encerramento planejado da compatibilidade dos links antigos.
 
 ## Checklist de implantação
 
@@ -63,17 +64,17 @@ docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml confi
 
 ### 3. Domínio, links antigos e entrada em produção
 
-- [ ] Definir IP estável autorizado da EC2, DNS de `sirenia.mage.dev.br`, certificado válido e virtual host próprio. Ajustar `WEB_BIND_PORT` e Nginx juntos se não usar 3080.
+- [ ] Definir IP estável autorizado da EC2, DNS de `sirenia.morea-ifs.org`, certificado válido e virtual host próprio. Ajustar `WEB_BIND_PORT` e Nginx juntos se não usar 3080.
 - [ ] Preservar acesso dos boletins já enviados. Links antigos apontam para `enem-leitor-web.vercel.app`, inclusive os renovados por 30 dias; copiar hashes no banco não muda esse endereço nem recupera tokens em claro.
 - [ ] Escolher e testar a continuidade: manter temporariamente o frontend antigo apontando para a **mesma API/banco AWS**, ou implementar redirecionamento do `/boletim` preservando `#TOKEN`. Esse redirecionamento **não está configurado pelo Compose**. Nunca colocar tokens em query string, logs ou planilhas.
-- [ ] Se optar por frontend Vercel → API AWS, reconstruir com `API_BASE_URL=https://sirenia.mage.dev.br`, permitir a origem antiga explicitamente e validar o encaminhamento real de headers, incluindo `X-Forwarded-Proto`, cookies e limites. Se precisar alterar o proxy confiável, fazer revisão de segurança; não usar confiança irrestrita. O smoke test é obrigatório antes de adotar essa opção.
+- [ ] Se optar por frontend Vercel → API AWS, reconstruir com `API_BASE_URL=https://sirenia.morea-ifs.org`, permitir a origem antiga explicitamente e validar o encaminhamento real de headers, incluindo `X-Forwarded-Proto`, cookies e limites. Se precisar alterar o proxy confiável, fazer revisão de segurança; não usar confiança irrestrita. O smoke test é obrigatório antes de adotar essa opção.
 - [ ] Validar um link anterior e um novo, com titular/dados de teste autorizado, inclusive download de PDF. Após o corte, evitar duas bases aceitando novas escritas; reemissão de links exige revisão na aplicação.
 - [ ] Iniciar a aplicação completa, passar os critérios de aceite abaixo e comunicar o corte. Não excluir a produção anterior até acabar a janela de rollback e a compatibilidade dos links.
 
 ```bash
 docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml up -d
 docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml ps
-curl --fail --silent --show-error https://sirenia.mage.dev.br/api/health
+curl --fail --silent --show-error https://sirenia.morea-ifs.org/api/health
 ```
 
 ### 4. Operação contínua
@@ -85,6 +86,8 @@ curl --fail --silent --show-error https://sirenia.mage.dev.br/api/health
 - [ ] Registrar responsável, acesso de recuperação, commit/imagens, data do corte, backup inicial e resultado dos testes. Rever custos de EC2, S3, SES e tráfego entre regiões.
 
 ## Critérios de aceite do responsável
+
+No GitHub, aguarde os dois workflows: **Verificações do projeto** (`ci.yml`) e **Build e smoke test Docker** (`docker-build.yml`). O segundo constrói `api` e `web`, em sequência, e testa os contêineres sem rede externa/volumes. Não usa credenciais da AWS, não envia e-mail e não publica/deploya imagens. Os labels OCI registram o commit de cada imagem carregada no runner. Depois do merge, a atualização da EC2 continua sendo responsabilidade do operador.
 
 | Fluxo | Resultado esperado |
 |---|---|

@@ -1,6 +1,6 @@
 {
   "CORSRules": [{
-    "AllowedOrigins": ["https://sirenia.mage.dev.br", "http://localhost:3080"],
+    "AllowedOrigins": ["https://sirenia.morea-ifs.org", "http://localhost:3080"],
     "AllowedMethods": ["PUT"],
     "AllowedHeaders": ["content-type", "if-none-match", "x-amz-*"],
     "ExposeHeaders": ["ETag"],

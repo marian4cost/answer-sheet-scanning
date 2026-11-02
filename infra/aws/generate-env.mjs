@@ -12,7 +12,7 @@ function jwt(role) {
 const env={POSTGRES_PASSWORD:randomBytes(32).toString('hex'),APP_DB_PASSWORD:randomBytes(32).toString('hex'),AUTH_DB_PASSWORD:randomBytes(32).toString('hex'),
   AUTH_JWT_SECRET:secret,SUPABASE_ANON_KEY:jwt('anon'),SUPABASE_SERVICE_ROLE_KEY:jwt('service_role'),
   CRON_SECRET:randomBytes(32).toString('hex'),
-  WEB_URL:'https://sirenia.mage.dev.br',CORS_ORIGINS:'https://sirenia.mage.dev.br',
+  WEB_URL:'https://sirenia.morea-ifs.org',CORS_ORIGINS:'https://sirenia.morea-ifs.org',
   AWS_REGION:'us-east-2',S3_REGION:'us-east-1',S3_BUCKET:'morea',S3_PREFIX:'sirenia/',STORAGE_MODE:'s3',EMAIL_PROVIDER:'ses',
   EMAIL_FROM:'SIRENIA <boletins@mage.dev.br>',EMAIL_REPLY_TO:'officegenisson@gmail.com',SES_CONFIGURATION_SET:'sirenia',SES_RATE_PER_SECOND:'1',
   REPORT_INSTITUTION:'Instituto Federal de Sergipe - Campus Lagarto',DATA_RETENTION_DAYS:'30',REPORT_LINK_TTL_DAYS:'30'};
