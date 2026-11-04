@@ -101,6 +101,61 @@ test('duas abas de redações e cabeçalhos sem cinco competências são recusad
 test('numeração de linhas XLSX preserva linhas vazias para localizar erros',async()=>{
   const f=await fixture();try {const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Forms');sheet.addRow(headers);sheet.addRow(sourceRow());sheet.getRow(5).values=sourceRow('000124',[201,0,0,0,0]);const preview=await f.service.preview(f.sim,Buffer.from(await book.xlsx.writeBuffer()),'gap.xlsx');assert.equal(preview.token,'');assert.match(preview.erros.join(' '),/Linha 5:/);}finally{await f.close();}
 });
+test('reenvio XLSX ignora formatação e células vazias além dos limites e atualiza a avaliação',async()=>{
+  const f=await fixture();
+  try {
+    const first=await f.service.preview(f.sim,await xlsx([sourceRow('000124')]),'original.xlsx');
+    await f.service.import(f.sim,first.token,'sim','nao');
+    const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Forms');
+    sheet.addRow(headers);sheet.addRow(sourceRow('000124',[200,200,200,200,200],'Avaliação corrigida.'));
+    sheet.getCell('DB1').fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFFFF'}};
+    sheet.getCell('DB5000').numFmt='0.00';
+    sheet.getCell('DC5001').value='   ';
+    sheet.getCell('DD5002').value={richText:[{text:' '}]};
+    const preview=await f.service.preview(f.sim,Buffer.from(await book.xlsx.writeBuffer()),'corrigida.xlsx');
+    assert.deepEqual(preview.erros,[]);assert.equal(preview.total,1);assert.equal(preview.atualizacoes,1);
+    assert.equal(preview.linhas[0].linha,2);assert.equal(preview.linhas[0].anteriores[0].nota_redacao,760);
+    assert.equal((await f.service.import(f.sim,preview.token,'sim','sim')).total_resultados,1);
+    const saved=await f.db.get('SELECT * FROM report_feedback WHERE resultado_id=?',f.ids[2]);
+    assert.equal(saved.nota_redacao,1000);assert.equal(saved.feedback_redacao,'Avaliação corrigida.');
+    assert.equal(await f.db.get('SELECT * FROM report_feedback WHERE resultado_id=?',f.otherId),undefined);
+  } finally {await f.close();}
+});
+test('CSV ignora linhas e colunas finais vazias e preserva o número original da linha',async()=>{
+  const f=await fixture();
+  try {
+    const padding=Array(50).fill(' '),blank=Array(60).fill(' ');
+    const rows=[...Array.from({length:1100},()=>blank),['000124',160,160,160,160,160,'Corrigida',...padding],...Array.from({length:100},()=>blank)];
+    const preview=await f.service.preview(f.sim,csv(rows,[...simpleHeaders,...padding]),'vazias.csv');
+    assert.deepEqual(preview.erros,[]);assert.equal(preview.total,1);assert.equal(preview.linhas[0].linha,1102);
+    const invalid=await f.service.preview(f.sim,csv([...rows,['000123',201,0,0,0,0,'']],[...simpleHeaders,...padding]),'erro.csv');
+    assert.equal(invalid.token,'');assert.match(invalid.erros.join(' '),/Linha 1203: Competência 1/);
+  } finally {await f.close();}
+});
+test('XLSX com linha preenchida distante preserva localização do erro sem contar lacunas',async()=>{
+  const f=await fixture();
+  try {
+    const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Forms');sheet.addRow(headers);
+    sheet.getRow(5000).values=sourceRow('000124',[201,0,0,0,0]);
+    const preview=await f.service.preview(f.sim,Buffer.from(await book.xlsx.writeBuffer()),'distante.xlsx');
+    assert.equal(preview.token,'');assert.match(preview.erros.join(' '),/Linha 5000: Competência 1/);
+  } finally {await f.close();}
+});
+test('limites reais de 1.000 avaliações e 40 colunas continuam valendo em XLSX e CSV',async()=>{
+  const f=await fixture();
+  try {
+    const rows=Array.from({length:1000},(_,i)=>[i===0?'000124':`ausente-${i}`,0,0,0,0,0,'']);
+    const columns=[...simpleHeaders,...Array.from({length:33},(_,i)=>`Auxiliar ${i}`)];
+    for (const extension of ['xlsx','csv']) {
+      const file=async data=>extension==='xlsx'?xlsx(data,{headers:columns}):csv(data,columns);
+      const preview=await f.service.preview(f.sim,await file(rows),`limite.${extension}`,true);
+      assert.deepEqual(preview.erros,[]);assert.equal(preview.total,1000);
+      await assert.rejects(f.service.preview(f.sim,await file([...rows,['extra',0,0,0,0,0,'']]),`linhas.${extension}`,true),/1.000 redações e 40 colunas/);
+      const wide=[...rows[0],...Array(33).fill(''),'Conteúdo real na coluna 41'];
+      await assert.rejects(f.service.preview(f.sim,await file([wide]),`colunas.${extension}`,true),/1.000 redações e 40 colunas/);
+    }
+  } finally {await f.close();}
+});
 test('situação e anulação são mantidas como texto sem inventar nota nem afetar questões objetivas',async()=>{
   const f=await fixture();try {const row=sourceRow('000124',[160,160,160,160,160]);row[4]='Situação registrada pelo professor';const preview=await f.service.preview(f.sim,await xlsx([row]),'situation.xlsx');assert.deepEqual(preview.erros,[]);assert.equal(preview.linhas[0].nota_redacao,800);await f.service.import(f.sim,preview.token,'sim','nao');const feedback=await f.db.get('SELECT * FROM report_feedback WHERE resultado_id=?',f.ids[2]);assert.equal(feedback.situacao_redacao,row[4]);assert.equal((await f.db.get('SELECT total_acertos FROM core_resultadoaluno WHERE id=?',f.ids[2])).total_acertos,50);}finally{await f.close();}
 });

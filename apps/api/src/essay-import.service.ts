@@ -42,6 +42,17 @@ function plainCell(value: unknown): unknown {
   }
   return value;
 }
+function emptyCell(value: unknown): boolean {
+  return value === null || value === undefined || (typeof value === 'string' && !value.trim());
+}
+function appendSourceRow(rows: SourceRow[], linha: number, values: unknown[]): void {
+  // Editors can retain empty cells and formatting far beyond the response table.
+  // Keep physical line numbers, but apply limits only to populated rows/columns.
+  while (values.length && emptyCell(values[values.length - 1])) values.pop();
+  if (!values.length && linha !== 1) return;
+  if (rows.length >= MAX_ROWS + 1 || values.length > MAX_COLUMNS) throw new BadRequestException('A planilha aceita até 1.000 redações e 40 colunas.');
+  rows.push({linha, values});
+}
 function textCell(value: unknown, max: number, label: string, multiline = false): string {
   if (value === null || value === undefined) return '';
   if (typeof value !== 'string') throw new Error(`${label} deve conter texto, sem fórmulas.`);
@@ -80,8 +91,9 @@ export class EssayImportService {
     const extension = extname(filename).toLowerCase();
     if (extension === '.csv') {
       const parsed = Papa.parse<unknown[]>(buffer.toString('utf8').replace(/^\uFEFF/, ''), {dynamicTyping: false, skipEmptyLines: false});
-      if (parsed.data.length > MAX_ROWS + 1 || parsed.data.some(row => row.length > MAX_COLUMNS)) throw new BadRequestException('A planilha aceita até 1.000 redações e 40 colunas.');
-      return {rows: parsed.data.map((values, index) => ({linha: index + 1, values})), erros: parsed.errors.map(error => `CSV inválido: ${error.message}`)};
+      const rows: SourceRow[] = [];
+      parsed.data.forEach((values, index) => appendSourceRow(rows, index + 1, values));
+      return {rows, erros: parsed.errors.map(error => `CSV inválido: ${error.message}`)};
     }
     if (extension !== '.xlsx') throw new BadRequestException('Use a planilha XLSX ou CSV exportada do formulário de avaliação de redações.');
     const book = new ExcelJS.Workbook();
@@ -94,9 +106,15 @@ export class EssayImportService {
     if (candidates.length > 1) throw new BadRequestException('Mais de uma aba contém avaliações de redação. Mantenha uma única aba com matrícula e as cinco competências.');
     if (!candidates.length) throw new BadRequestException('Nenhuma aba contém Matrícula do Aluno e Competência 1 a 5 na primeira linha. Exporte a aba de respostas do formulário.');
     const sheet = candidates[0];
-    if (sheet.rowCount > MAX_ROWS + 1 || sheet.columnCount > MAX_COLUMNS) throw new BadRequestException('A planilha aceita até 1.000 redações e 40 colunas.');
     const rows: SourceRow[] = [];
-    sheet.eachRow({includeEmpty: false}, row => rows.push({linha: row.number, values: Array.from({length: sheet.columnCount}, (_, i) => plainCell(row.getCell(i + 1).value))}));
+    sheet.eachRow({includeEmpty: false}, row => {
+      const values: unknown[] = [];
+      row.eachCell({includeEmpty: false}, (cell, column) => {
+        const value = plainCell(cell.value);
+        if (!emptyCell(value)) values[column - 1] = value;
+      });
+      appendSourceRow(rows, row.number, values);
+    });
     return {rows, erros: []};
   }
 
