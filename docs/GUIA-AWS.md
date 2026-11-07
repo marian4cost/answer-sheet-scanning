@@ -1,40 +1,40 @@
 # SIRENIA na AWS: implantação, migração e operação
 
-Procedimentos atualizados em **02/11/2026**. Para assumir a instalação, comece pelo [roteiro de entrega](ENTREGA-AWS.md) e pelo [catálogo de todas as variáveis](VARIAVEIS-AMBIENTE.md). O inventário abaixo mantém sua data original; o responsável precisa confirmá-lo na conta. A infraestrutura integra a `main` pela [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1). O responsável já publicou `https://sirenia.morea-ifs.org`; a primeira verificação HTTP apontou pendências de origem/Auth, detalhadas no roteiro. Os comandos de instalação continuam como referência; preserve a configuração de proxy e os dados que o operador já colocou em uso.
+Procedimentos atualizados em **07/11/2026**. Para assumir a instalação, comece pelo [roteiro de entrega](ENTREGA-AWS.md) e pelo [catálogo de todas as variáveis](VARIAVEIS-AMBIENTE.md). O inventário abaixo mantém sua data original; o responsável precisa confirmá-lo na conta. A infraestrutura integra a `main` pela [PR #1](https://github.com/GenissonEmilio/enem-leitor/pull/1). O responsável já publicou `https://sirenia.morea-ifs.org`; a primeira verificação HTTP apontou pendências de origem/Auth, detalhadas no roteiro. Os comandos de instalação continuam como referência; preserve a configuração de proxy e os dados que o operador já colocou em uso.
 
 ## O que cada serviço faz
 
 - **EC2** é a máquina Linux. Docker executa Next.js (site), NestJS (API + Python/OpenCV), PostgreSQL e GoTrue (autenticação) em contêineres separados. Um quinto contêiner faz a limpeza periódica.
-- **S3** guarda as provas e imagens de revisão em um bucket privado. O prefixo `sirenia/` separa os arquivos dos outros projetos do bucket `morea`.
+- **S3** guarda as provas e imagens de revisão em um bucket privado. O prefixo definido em `S3_PREFIX` separa os arquivos dos outros projetos do bucket indicado em `S3_BUCKET`.
 - **SES** envia os códigos de acesso e os links individuais dos boletins. A aplicação registra o MessageId real aceito pela AWS.
-- **Registro.br** administra o DNS. O sistema usará `sirenia.morea-ifs.org`; o remetente será `boletins@mage.dev.br`, com resposta para `officegenisson@gmail.com`.
+- **Registro.br** administra o DNS. O sistema usará `sirenia.morea-ifs.org`; configure o remetente verificado em `EMAIL_FROM` e o endereço de resposta em `EMAIL_REPLY_TO`, no arquivo privado de ambiente.
 - **Nginx e Let's Encrypt**, no servidor, terminam o HTTPS e encaminham somente esse domínio ao Next.js em `127.0.0.1:3080`.
 
 PostgreSQL, GoTrue e Nest não publicam portas na máquina. O navegador usa o mesmo domínio para o site e `/api`. As chaves administrativas permanecem no servidor. Docker facilita reproduzir versões e atualizar; ele não aumenta a memória disponível nem substitui backups.
 
 ## Situação verificada em 24/10/2026
 
-Conta MOREA `924328993642`, região da aplicação `us-east-2` (Ohio).
+Versão compartilhável do inventário: a conta, regiões reais, nomes internos, IPs, IDs e números de chamados ficam no inventário privado do responsável pela AWS. Consulte esse responsável para obter os valores; não os inclua em documentação, exemplos ou screenshots compartilhados.
 
 | Recurso | Resultado |
 |---|---|
-| Morea-Server03 | EC2 `i-0ae9e50d65f455e35`, Debian 12, t2.small, 2 GB, IP 3.15.182.173 |
+| Servidor da aplicação | EC2 Linux existente; confirmar endereço, identificação e capacidade pelo inventário privado |
 | Acesso à máquina | Bloqueado: a sessão SSO não pode usar SSM nem EC2 Instance Connect; chave SSH não fornecida |
-| Banco existente | `trancadura-db` é MySQL, pertence a outro projeto e não será reutilizado como PostgreSQL |
-| Bucket | `morea`, região `us-east-1`; quatro bloqueios de acesso público ativados |
-| DNS do e-mail | Três CNAME DKIM, MX/SPF de `bounce.sirenia` e DMARC salvos no Registro.br |
-| SES | Domínio e MAIL FROM verificados; configuração `sirenia`; métricas de envio/entrega/falha no CloudWatch |
-| SES produção | Pedido negado; caso `179288506200738`. A sessão atual também não pode consultar os casos do suporte |
+| Banco existente | MySQL de outro projeto; não será reutilizado como PostgreSQL |
+| Bucket | Privado; nome e região definidos no ambiente privado. Quatro bloqueios de acesso público ativados |
+| DNS do e-mail | DKIM, MX/SPF do MAIL FROM e DMARC configurados no provedor DNS |
+| SES | Domínio e MAIL FROM verificados; configuration set definido no ambiente privado e métricas no CloudWatch |
+| SES produção | Pedido negado no inventário inicial; o responsável deve consultar o chamado pelo canal privado de suporte |
 | Aplicação | Testada localmente em Docker, com banco e Auth próprios, S3 e SES reais |
 | Publicação AWS | **Pendente de acesso e avaliação da capacidade do servidor**; a produção anterior permanece preservada |
 
-A EC2 já possui o papel `AWS-EC2-S3-Role`, compartilhado com outros recursos, com acesso S3. Ele ainda precisa da permissão de envio SES. O arquivo `infra/aws/instance-policy.json` é a política mínima proposta para a aplicação; não remova permissões existentes de outros sistemas sem avaliação do responsável.
+O papel associado à EC2 precisa de acesso ao prefixo S3 e permissão de envio SES. `infra/aws/instance-policy.json` é um template sem identificadores reais: copie-o para `infra/aws/runtime/instance-policy.json` e substitua os marcadores `__AWS_REGION__`, `__AWS_ACCOUNT_ID__`, `__SES_DOMAIN__`, `__SES_CONFIGURATION_SET__`, `__EMAIL_FROM_ADDRESS__`, `__S3_BUCKET__` e `__S3_PREFIX__` usando o inventário privado. O prefixo deve terminar em `/`, e o endereço de remetente não inclui o nome de exibição. Se não usar configuration set, remova somente a entrada correspondente do array `Resource` na cópia privada. A política com marcadores não deve ser aplicada. Preserve o escopo dos recursos e as permissões existentes de outros sistemas; não use curingas para substituir conta, bucket ou domínio.
 
 ## 1. Acesso e capacidade antes de instalar
 
 Peça ao responsável pelo ambiente:
 
-> Preciso de acesso SSH ao Morea-Server03 (i-0ae9e50d65f455e35, Debian, usuário admin), ou de uma sessão SSM habilitada. A conta SSO genisson não possui ec2-instance-connect:SendSSHPublicKey nem acesso SSM. Confirme também que esse é o servidor reservado ao SIRENIA e autorize o envio SES pelo papel da instância, limitado a boletins@mage.dev.br.
+> Preciso de acesso SSH ao servidor Linux reservado ao SIRENIA, ou de uma sessão SSM habilitada. Envie a identificação do servidor e as orientações de acesso por canal privado. Confirme a capacidade disponível e autorize o envio SES pelo papel da instância, limitado ao remetente configurado para a aplicação.
 
 Não envie a chave privada no chat ou no Git. Se receber um arquivo, guarde com permissão 600 e valide a identificação do host antes do primeiro SSH.
 
@@ -49,18 +49,18 @@ sudo ss -lntp
 sudo nginx -T
 ```
 
-Observe os serviços existentes, portas, disco, memória e proxy. A máquina tem apenas 2 GB; os limites máximos dos contêineres, somados ao sistema operacional e outros projetos, podem exceder isso. **Não iniciar o stack em produção sem medir a folga e confirmar a capacidade com o supervisor.** O teste local não demonstra que uma máquina compartilhada de 2 GB suporta a carga. As imagens devem ser construídas no computador de desenvolvimento, evitando o pico de compilação na EC2.
+Observe os serviços existentes, portas, disco, memória e proxy. Em uma máquina compartilhada de pouca memória, os limites máximos dos contêineres, somados ao sistema operacional e outros projetos, podem exceder a capacidade disponível. **Não iniciar o stack em produção sem medir a folga e confirmar a capacidade com o supervisor.** O teste local não demonstra que uma máquina compartilhada de 2 GB suporta a carga. As imagens devem ser construídas no computador de desenvolvimento, evitando o pico de compilação na EC2.
 
 ## 2. Autenticação AWS sem chaves permanentes
 
-No computador de desenvolvimento:
+No computador de desenvolvimento, defina `AWS_PROFILE` no terminal com o nome do seu perfil SSO autorizado, obtido com o responsável. Para os comandos SES da seção 6, defina também `AWS_REGION` e `SES_DOMAIN` com a região e o domínio verificado do inventário privado. `SES_DOMAIN` é usado apenas nos comandos do operador, não pela aplicação.
 
 ```bash
-aws sso login --profile sirenia-morea
-aws sts get-caller-identity --profile sirenia-morea
+aws sso login --profile "$AWS_PROFILE"
+aws sts get-caller-identity --profile "$AWS_PROFILE"
 ```
 
-O perfil SSO foi configurado nesta máquina para a conta MOREA, papel SystemAdministrator e região `us-east-2`. O nome do papel não garante todas as permissões: algumas ações foram recusadas.
+O nome do papel não garante todas as permissões: confira as ações necessárias. A saída de `get-caller-identity` contém identificadores da conta e não deve ser publicada.
 
 Na EC2, use o **instance profile**. Não copie a sessão SSO, o arquivo `aws-test.env` ou access keys para produção. O SDK obtém credenciais temporárias pelo papel da máquina; o IMDSv2 já é obrigatório e o hop limit é 2 para permitir o uso em Docker.
 
@@ -74,7 +74,7 @@ Na cópia do projeto reservada à aplicação:
 node infra/aws/generate-env.mjs
 ```
 
-Esse comando precisa de Node.js 22.23+ no computador de preparação e cria `infra/aws/runtime/.env`, com permissão 600, senhas aleatórias distintas para PostgreSQL e Auth, chaves do serviço e segredo de cron. Recusa sobrescrever o arquivo existente. Guarde uma cópia segura fora do servidor; o arquivo é ignorado pelo Git e pelo build Docker. Revise domínio, remetente, região e bucket. Não use `source` nesse arquivo: ele segue o formato dotenv e contém valores com espaços. As imagens prontas incluem Node/Python; o host EC2 não precisa desses runtimes para executá-las.
+Esse comando precisa de Node.js 22.23+ no computador de preparação e cria `infra/aws/runtime/.env`, com permissão 600, senhas aleatórias distintas para PostgreSQL e Auth, chaves do serviço e segredo de cron. Recusa sobrescrever o arquivo existente. Guarde uma cópia segura fora do servidor; o arquivo é ignorado pelo Git e pelo build Docker. Revise domínio e remetente. Antes de validar o Compose, preencha `AWS_REGION`, `S3_REGION` e `S3_BUCKET` no arquivo privado; eles começam vazios. `EMAIL_REPLY_TO` e `SES_CONFIGURATION_SET` também começam vazios. Esses cinco campos podem ser fornecidos ao gerador por variáveis do terminal; valores reais não devem ser incluídos no Git. Não use `source` nesse arquivo: ele segue o formato dotenv e contém valores com espaços. As imagens prontas incluem Node/Python; o host EC2 não precisa desses runtimes para executá-las.
 
 O [catálogo](VARIAVEIS-AMBIENTE.md) diferencia entradas do arquivo e valores fixos. O Compose define `EMAIL_PROVIDER=ses`, `AUTH_BASE_URL=http://auth:9999`, a conexão privada de banco e o worker Python local; acrescentar linhas ao `.env` não sobrescreve esses valores. Uma variável exportada no shell pode, porém, substituir uma interpolação do Compose. Para validar a configuração sem exibir senhas:
 
@@ -140,8 +140,8 @@ O primeiro comando é uma prévia. O segundo copia apenas as tabelas do SIRENIA 
 Os arquivos privados são copiados separadamente:
 
 ```bash
-AWS_PROFILE=sirenia-morea node scripts/migrate-aws-storage.mjs
-AWS_PROFILE=sirenia-morea node scripts/migrate-aws-storage.mjs --apply
+node scripts/migrate-aws-storage.mjs
+node scripts/migrate-aws-storage.mjs --apply
 ```
 
 O script percorre o bucket de origem, copia para o prefixo dedicado no S3 e confere SHA-256. Objetos diferentes existentes no destino são recusados. Nenhum arquivo da origem é apagado. Essas operações exigem uma sessão AWS com acesso ao bucket e a compilação da API (`npm run build -w @enem/api`).
@@ -152,24 +152,24 @@ Os scripts preservam UUIDs e as roles da aplicação. O administrador existente 
 
 ## 6. SES e DNS
 
-No console AWS, selecione **Ohio / us-east-2 → Amazon SES**. As identidades, cotas e configurações são regionais.
+No console AWS, selecione **a região definida em `AWS_REGION` → Amazon SES**. As identidades, cotas e configurações são regionais.
 
 1. Em **Verified identities**, `mage.dev.br` deve aparecer verificado, com DKIM e MAIL FROM bem-sucedidos.
 2. Em **Account dashboard**, confira o estado de produção. No sandbox só é possível enviar para destinatários verificados ou o mailbox simulator da AWS.
-3. O pedido de produção foi negado. Um responsável com acesso ao suporte deve abrir o caso `179288506200738`, consultar o motivo e responder com informações verdadeiras sobre o uso educacional, destinatários, revisão da planilha, supressão de bounces/reclamações e autenticação do domínio. Não existe liberação automática pelo código.
-4. O destinatário de teste solicitado anteriormente foi `genisson.santos121@academico.ifs.edu.br`; a AWS enviou uma mensagem de verificação. O titular confirma clicando no link da mensagem, sem fornecer senha ao SIRENIA.
+3. No inventário inicial, o pedido de produção foi negado. Um responsável com acesso ao suporte deve consultar o chamado correspondente pelo canal privado e responder com informações verdadeiras sobre o uso educacional, destinatários, revisão da planilha, supressão de bounces/reclamações e autenticação do domínio. Não existe liberação automática pelo código.
+4. No sandbox, escolha um destinatário de teste autorizado. O titular confirma o endereço pelo link da mensagem da AWS, sem fornecer senha ao SIRENIA. Não publique seu endereço pessoal nas evidências.
 5. Depois da aprovação, ajuste `SES_RATE_PER_SECOND` respeitando a cota real. A configuração inicial é 1/s.
 
 Para verificar pelo terminal:
 
 ```bash
-aws sesv2 get-account --profile sirenia-morea --region us-east-2
-aws sesv2 get-email-identity --profile sirenia-morea --region us-east-2 --email-identity mage.dev.br
+aws sesv2 get-account --profile "$AWS_PROFILE" --region "$AWS_REGION"
+aws sesv2 get-email-identity --profile "$AWS_PROFILE" --region "$AWS_REGION" --email-identity "$SES_DOMAIN"
 ```
 
-O SES usa a API HTTPS (porta 443), não SMTP: não precisa de `SMTP_USER`, `SMTP_PASS` nem liberar porta 25. As permissões de runtime são diferentes das permissões de administração do console. Revise `infra/aws/instance-policy.json` para permitir ao papel da EC2 o remetente, configuration set e prefixo S3 corretos. Na migração local, o operador usa seu próprio perfil SSO; o nome `sirenia-morea` não existe automaticamente em outro computador.
+O SES usa a API HTTPS (porta 443), não SMTP: não precisa de `SMTP_USER`, `SMTP_PASS` nem liberar porta 25. As permissões de runtime são diferentes das permissões de administração do console. Revise `infra/aws/instance-policy.json` para permitir ao papel da EC2 o remetente, configuration set e prefixo S3 corretos. Na migração local, o operador usa seu próprio perfil SSO; o nome definido em `AWS_PROFILE` não existe automaticamente em outro computador.
 
-O SES usa HTML e texto simples, remetente estável, autenticação DNS e Reply-To. Isso melhora autenticação e reputação, mas **não garante caixa de entrada nem elimina spam por si só**. A reputação depende também de destinatários corretos, reclamações e volume. Consulte métricas de BOUNCE/COMPLAINT/DELIVERY da configuração `sirenia` no CloudWatch. A supressão de bounces e reclamações havia sido ativada no inventário; revalide seu estado e o alinhamento SPF/DKIM/DMARC na mensagem real recebida.
+O SES usa HTML e texto simples, remetente estável, autenticação DNS e Reply-To. Isso melhora autenticação e reputação, mas **não garante caixa de entrada nem elimina spam por si só**. A reputação depende também de destinatários corretos, reclamações e volume. Consulte métricas de BOUNCE/COMPLAINT/DELIVERY do configuration set indicado em `SES_CONFIGURATION_SET` no CloudWatch. A supressão de bounces e reclamações havia sido ativada no inventário; revalide seu estado e o alinhamento SPF/DKIM/DMARC na mensagem real recebida.
 
 Uma resposta aceita do SES significa aceitação pelo provedor, não leitura pelo aluno. Timeouts e falhas 5xx permanecem ambíguos e não são reenviados automaticamente; o professor consulta o histórico. Recusas explícitas podem ser revistas e planejadas novamente. Selecionar `EMAIL_PROVIDER=ses` não faz fallback silencioso para EmailJS.
 
@@ -258,7 +258,7 @@ Faça backup, registre o commit e a tag das imagens. Construa novas imagens fora
 
 Se a nova imagem falhar e o schema continuar compatível, carregue a imagem anterior e execute `up -d` novamente. Mudança incompatível de banco exige o plano de restauração ensaiado. Não apague a produção antiga até validar o corte.
 
-Usar infraestrutura existente evita criar outra máquina automaticamente, mas não torna SES, S3, transferência entre regiões ou monitoramento gratuitos. Confirme limites e custos com o supervisor. O bucket existente está em `us-east-1`, enquanto a máquina está em `us-east-2`; essa diferença pode gerar transferência entre regiões.
+Usar infraestrutura existente evita criar outra máquina automaticamente, mas não torna SES, S3, transferência entre regiões ou monitoramento gratuitos. Confirme limites e custos com o supervisor. Compare as regiões do bucket e da aplicação no inventário privado; regiões diferentes podem gerar transferência entre regiões.
 
 ## 11. Primeiro administrador, somente em instalação nova
 

@@ -72,13 +72,13 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?}
       CRON_SECRET: ${CRON_SECRET:?}
-      AWS_REGION: ${AWS_REGION:-us-east-2}
-      S3_REGION: ${S3_REGION:-us-east-1}
+      AWS_REGION: ${AWS_REGION:?Informe a região do SES no arquivo privado de ambiente}
+      S3_REGION: ${S3_REGION:?Informe a região do bucket no arquivo privado de ambiente}
       S3_BUCKET: ${S3_BUCKET:?}
       S3_PREFIX: ${S3_PREFIX:-sirenia/}
       EMAIL_FROM: ${EMAIL_FROM:?}
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
-      SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-sirenia}
+      SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-}
       SES_RATE_PER_SECOND: ${SES_RATE_PER_SECOND:-1}
       DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-30}
       REPORT_LINK_TTL_DAYS: ${REPORT_LINK_TTL_DAYS:-30}

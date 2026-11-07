@@ -1,6 +1,6 @@
 # Entrega do SIRENIA ao responsável pela AWS
 
-Revisão da documentação: **02/11/2026**. O responsável publicou o site em `https://sirenia.morea-ifs.org`; a validação completa de login, dados e entrega de boletins ainda é necessária.
+Revisão da documentação: **07/11/2026**. O responsável publicou o site em `https://sirenia.morea-ifs.org`; a validação completa de login, dados e entrega de boletins ainda é necessária.
 
 ## Comece aqui
 
@@ -23,15 +23,15 @@ git rev-parse HEAD
 | Aplicação | Next.js, NestJS/Python/OpenCV, PostgreSQL e GoTrue em Docker Compose; S3 e SES integrados. |
 | Site AWS | Publicado pelo responsável em `https://sirenia.morea-ifs.org`. Em 02/11, `/api/health` respondeu; login com origem recusada e Auth `configured:false`. Atualizar código/imagens e variáveis antes de considerar funcional. |
 | Ambiente anterior | Vercel + Supabase; último envio verificado em 29/10 pelo EmailJS. Preservar até conferir migração e links antigos. |
-| Servidor proposto | Morea-Server03, `i-0ae9e50d65f455e35`, Debian, conta MOREA, `us-east-2`. Inventário de 24/10: 2 GB; confirmar a reserva da máquina e medir a capacidade compartilhada. |
+| Servidor proposto | EC2 Linux existente. Obter identificação, endereço, região e acesso pelo inventário privado; confirmar a reserva da máquina e medir a capacidade compartilhada. |
 | Acesso | A sessão do desenvolvedor não tinha SSH/SSM no inventário inicial. O responsável conduziu a publicação com seu acesso; usar esse acesso autorizado para atualizar o servidor. |
-| S3 | Bucket existente `morea`, `us-east-1`, prefixo `sirenia/`. Confirmar permissões, CORS e lifecycle sem substituir regras de outros projetos. |
-| SES | Região `us-east-2`, domínio `mage.dev.br`, remetente `boletins@mage.dev.br`, configuration set `sirenia`. No inventário de 24/10 o pedido de produção havia sido negado, caso `179288506200738`; verificar o estado atual e tratar com o suporte. |
+| S3 | Bucket privado definido em `S3_BUCKET`, região em `S3_REGION` e prefixo em `S3_PREFIX`. Confirmar permissões, CORS e lifecycle sem substituir regras de outros projetos. |
+| SES | Região, identidade, remetente e configuration set definidos no ambiente privado. No inventário inicial o pedido de produção havia sido negado; verificar o estado atual e consultar o chamado pelo canal privado de suporte. |
 | Domínio do site | Atual: `https://sirenia.morea-ifs.org`. `WEB_URL`, `CORS_ORIGINS`, CORS de upload no S3 e proxy precisam corresponder ao domínio. O domínio de e-mail continua `mage.dev.br`. |
 | Segredos | Gerador disponível; valores reais não estão no Git. Credenciais da origem necessárias à migração devem ser entregues por canal privado. |
 | Dados/contas | Scripts de migração disponíveis; conclusão da migração real ainda não verificada pelo desenvolvedor. Não criar contas de teste no destino final antes de migrar. |
 
-Os dados de recursos/IAM/SES são do inventário original e precisam ser revalidados na conta AWS; as observações HTTP são de 02/11. Não é necessário manter Vercel ou Supabase gerenciado após uma migração completa e o encerramento planejado da compatibilidade dos links antigos.
+O inventário detalhado de recursos/IAM/SES, com IDs, nomes internos, regiões reais, IPs e chamados, deve ser entregue por canal privado e revalidado na conta AWS; não o inclua no Git ou em screenshots compartilhados. As observações HTTP são de 02/11. Não é necessário manter Vercel ou Supabase gerenciado após uma migração completa e o encerramento planejado da compatibilidade dos links antigos.
 
 ## Checklist de implantação
 
@@ -45,10 +45,11 @@ Os comandos completos e as explicações estão no guia. Não avançar uma etapa
 - [ ] Entrada pública somente 80/443 do proxy; SSH restrito à administração. Não publicar 5432, 9999 ou 3001. Saída HTTPS/DNS para S3/SES e dependências; SES é API HTTPS 443, sem SMTP/porta 25 nesta implantação.
 - [ ] S3 com os quatro bloqueios públicos, prefixo dedicado e CORS de PUT para o domínio. Mesclar os templates `s3-cors.json` e `s3-lifecycle.json` às regras existentes, sem substituir a configuração de todo o bucket compartilhado.
 - [ ] SES: produção liberada para alunos não verificados, remetente/DKIM/MAIL FROM, suppression e métricas de bounce/complaint verificados na região correta.
-- [ ] Gerar **uma vez** `infra/aws/runtime/.env`, revisar os valores não sigilosos no catálogo e guardar uma cópia privada. Não copiar `.env` antigo para o runtime.
+- [ ] Gerar **uma vez** `infra/aws/runtime/.env`, preencher `AWS_REGION`, `S3_REGION` e `S3_BUCKET`, revisar remetente, `EMAIL_REPLY_TO` e `SES_CONFIGURATION_SET` no catálogo e guardar uma cópia privada. O gerador não preenche dados reais da infraestrutura. Não copiar `.env` antigo para o runtime.
 
 ```bash
 node infra/aws/generate-env.mjs
+# Preencha as regiões e o bucket no arquivo privado antes de validar.
 docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml config --quiet
 ```
 

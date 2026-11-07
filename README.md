@@ -265,7 +265,9 @@ Há dois workflows no GitHub Actions: [ci.yml](.github/workflows/ci.yml) compila
 
 ## Implantação completa na AWS
 
-Documentação de entrega atualizada em **02/11/2026**; domínio publicado pelo responsável: [sirenia.morea-ifs.org](https://sirenia.morea-ifs.org/).
+Documentação de entrega atualizada em **07/11/2026**; domínio publicado pelo responsável: [sirenia.morea-ifs.org](https://sirenia.morea-ifs.org/).
+
+Os guias e modelos compartilhados não contêm o inventário real da AWS. IDs de conta e instância, IPs, regiões reais, nomes internos de recursos, ARNs preenchidos e chamados devem ser obtidos com o responsável por canal privado. O gerador deixa regiões e bucket para preenchimento em `infra/aws/runtime/.env`, ignorado pelo Git; a política IAM também deve ser personalizada em uma cópia privada antes de ser aplicada.
 
 | Documento | Conteúdo |
 |---|---|
