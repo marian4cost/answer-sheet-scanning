@@ -31,6 +31,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Validar Compose com configuração descartável
+        env:
+          AWS_REGION: us-east-1
+          S3_REGION: us-east-1
+          S3_BUCKET: sirenia-ci-placeholder
         run: |
           node infra/aws/generate-env.mjs
           docker compose --env-file infra/aws/runtime/.env -f infra/aws/compose.yaml config --quiet

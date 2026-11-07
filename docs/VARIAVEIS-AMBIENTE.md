@@ -18,7 +18,7 @@ O arquivo AWS **não é carregado automaticamente pelo NestJS**. Adicionar uma l
 
 ## Entradas do arquivo AWS
 
-As linhas abaixo são geradas pelo script. Valores reais de segredos nunca entram neste documento. “Obrigatória” significa necessária à configuração fornecida, mesmo quando o gerador já a preenche.
+As linhas abaixo são geradas pelo script. Segredos e inventários reais da infraestrutura nunca entram neste documento. Regiões, bucket, endereço de resposta e configuration set começam vazios, a menos que sejam fornecidos ao gerador pelas variáveis correspondentes do terminal; preencha-os no arquivo privado antes de validar o Compose. “Obrigatória” significa necessária à configuração fornecida, mesmo quando o gerador já a preenche.
 
 | Variável | Obrigatória / sigilosa | Valor gerado ou formato | Uso e alteração |
 |---|---|---|---|
@@ -31,15 +31,15 @@ As linhas abaixo são geradas pelo script. Valores reais de segredos nunca entra
 | `CRON_SECRET` | Sim / segredo | Aleatório, 64 caracteres hexadecimais; mínimo aceito: 32 | Mesmo valor em `api` e `cleanup`; autoriza a limpeza periódica. |
 | `WEB_URL` | Sim / não | `https://sirenia.morea-ifs.org` | Origem pública HTTPS, sem `/api`; usada nos links dos alunos e no Auth. |
 | `CORS_ORIGINS` | Sim / não | `https://sirenia.morea-ifs.org` | Origens exatas, separadas por vírgula e sem barra final. Atualizar se mudar o domínio. Não usar `*`. |
-| `AWS_REGION` | Sim / não | `us-east-2` | Região do SES e alternativa de região para S3. Identidade, cota e configuration set do SES devem existir nela. |
-| `S3_REGION` | Sim / não | `us-east-1` | Região real do bucket existente; é diferente da região do SES. |
-| `S3_BUCKET` | Sim / não | `morea` | Bucket existente e privado; o código não cria o bucket nem altera a política. |
+| `AWS_REGION` | Sim / inventário privado | Vazio; preencher a região do SES | Região do SES e alternativa de região para S3. Identidade, cota e configuration set do SES devem existir nela. |
+| `S3_REGION` | Sim / inventário privado | Vazio; usa `AWS_REGION` se ela for fornecida ao gerador e `S3_REGION` não for | Região real do bucket existente; confirmar se é a mesma do SES. |
+| `S3_BUCKET` | Sim / inventário privado | Vazio; preencher o nome do bucket | Bucket existente e privado; o código não cria o bucket nem altera a política. |
 | `S3_PREFIX` | Sim / não | `sirenia/` | Prefixo exclusivo, terminado em `/`. O adapter aceita segmentos alfanuméricos, `_` e `-`; o script de backup atual exige um único segmento. Mudar exige adaptar IAM, lifecycle, migração e backup. |
 | `STORAGE_MODE` | Sim / não | `s3` | Aceita `local`, `supabase` ou `s3`; use `s3` na implantação AWS. Os demais exigem armazenamento próprio correspondente. |
 | `EMAIL_PROVIDER` | Intenção do arquivo / não | `ses` | O Compose fornecido fixa `ses` na API, sem interpolar esta linha. Alterar apenas o dotenv não troca o provedor; consulte a seção de valores fixos. |
 | `EMAIL_FROM` | Sim / não | `SIRENIA <boletins@mage.dev.br>` | Remetente autorizado pelo domínio verificado e pela condição `ses:FromAddress` da política IAM. |
-| `EMAIL_REPLY_TO` | Não / endereço de contato | `officegenisson@gmail.com` | Recebe respostas dos alunos; um único endereço válido, sem nome de exibição. Não altera o remetente. |
-| `SES_CONFIGURATION_SET` | Recomendado / não | `sirenia` | Nome do configuration set existente na região do SES. Se informado e inexistente, o envio é recusado. Vazio omite o campo. |
+| `EMAIL_REPLY_TO` | Não / endereço de contato privado | Vazio; preencher o endereço de resposta | Recebe respostas dos alunos; um único endereço válido, sem nome de exibição. Não altera o remetente. |
+| `SES_CONFIGURATION_SET` | Recomendado / inventário privado | Vazio; preencher o nome do configuration set | Nome do configuration set existente na região do SES. Se informado e inexistente, o envio é recusado. Vazio omite o campo. |
 | `SES_RATE_PER_SECOND` | Não / não | `1` | Número maior que 0 e menor ou igual a 100; respeite a cota aprovada. O banco reserva os intervalos entre envios. Não aumenta a cota da AWS. |
 | `REPORT_INSTITUTION` | Não / não | `Instituto Federal de Sergipe - Campus Lagarto` | Nome no boletim. UTF-8 e espaços são permitidos no dotenv. |
 | `DATA_RETENTION_DAYS` | Não / não | `30` | Inteiro de 1 a 365. Prazo de novos simulados e contatos; não reescreve vencimentos de registros existentes. |
@@ -152,7 +152,8 @@ Na EC2, use o papel da instância com IMDSv2; a aplicação utiliza a cadeia pad
 
 | Variáveis | Regra operacional |
 |---|---|
-| `AWS_PROFILE` | Perfil SSO **do computador do operador**, por exemplo `sirenia-morea`. Não existe automaticamente em outra máquina; o responsável usa o próprio perfil autorizado. Não precisa estar no contêiner de produção. |
+| `AWS_PROFILE` | Perfil SSO **do computador do operador**, definido em `AWS_PROFILE` no terminal privado. Não existe automaticamente em outra máquina; o responsável usa o próprio perfil autorizado. Não precisa estar no contêiner de produção. |
+| `SES_DOMAIN` | Domínio verificado usado somente nos comandos AWS CLI do guia. Obter do inventário privado; não é uma variável da API nem é injetada no Compose. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Apenas credenciais temporárias para um ensaio local autorizado, se necessário, por override privado e ignorado. Não são entradas do gerador nem do Compose de produção. |
 | `AWS_EC2_METADATA_DISABLED` | Não definir `true` na EC2: impediria o SDK de obter o papel da instância. Conferir IMDSv2 e o hop limit adequado ao Docker com o responsável. |
 | `COMPOSE_PROJECT_NAME` | Não sobrescrever `sirenia` na instalação fornecida; scripts de backup e teste dependem dos nomes resultantes. |

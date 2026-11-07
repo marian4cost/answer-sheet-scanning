@@ -2,7 +2,7 @@
 
 ## Resultado
 
-O stack Docker local funciona com Next.js, NestJS/Python, PostgreSQL e GoTrue próprios, S3 privado e SES reais. **A publicação no servidor AWS ainda não foi executada**: falta acesso ao Morea-Server03 e avaliação de sua capacidade. A produção anterior e seus dados foram preservados.
+O stack Docker local funciona com Next.js, NestJS/Python, PostgreSQL e GoTrue próprios, S3 privado e SES reais. **A publicação no servidor AWS ainda não foi executada**: falta acesso ao servidor reservado e avaliação de sua capacidade. A produção anterior e seus dados foram preservados.
 
 ## Verificações executadas
 
@@ -27,7 +27,7 @@ O stack Docker local funciona com Next.js, NestJS/Python, PostgreSQL e GoTrue pr
 | Excel | Exportação com resultados e redação validada |
 | Arquivo privado | Imagem de revisão recuperada do S3 mediante autenticação |
 | E-mail integrado | ReportsService → SES real → mailbox simulator, MessageId e estado ENVIADO no histórico |
-| E-mail solicitado | SES aceitou um diagnóstico para `genisson.santos121@academico.ifs.edu.br`, somente com dados fictícios |
+| E-mail solicitado | SES aceitou um diagnóstico para o destinatário de teste autorizado, somente com dados fictícios |
 | Monitoramento | CloudWatch registrou eventos Delivery para a configuração `sirenia`; isso não confirma pasta de entrada/leitura |
 | Backup | Dump real transmitido ao S3 com AES256 e restaurado num banco separado; contagens de contas, simulados e resultados coincidiram |
 | Migração de contas | Script aplicado entre bancos de ensaio; UUID, hash de senha, role e login no Auth migrado preservados |
@@ -46,9 +46,9 @@ Os logs, screenshots, matrizes de respostas, PDF e XLSX de ensaio ficam em `arti
 ## Impedimentos externos
 
 1. A sessão SSO não possui acesso SSM nem `ec2-instance-connect:SendSSHPublicKey`. O usuário solicitou acesso ao supervisor.
-2. A EC2 Morea-Server03 possui 2 GB e sistemas existentes ainda não inspecionados. Não houve instalação, troca de proxy, mudança de tamanho ou criação de outra máquina.
+2. A EC2 compartilhada precisa de inspeção de capacidade e dos sistemas existentes. Não houve instalação, troca de proxy, mudança de tamanho ou criação de outra máquina.
 3. O papel da EC2 precisa de permissão SES limitada ao remetente. A política proposta está em `infra/aws/instance-policy.json`.
-4. A AWS negou o acesso SES de produção, caso `179288506200738`. O papel SSO também não pode consultar o motivo no suporte. Até resolver, só destinatários verificados e o simulador podem receber.
+4. A AWS negou o acesso SES de produção no inventário inicial; os detalhes do chamado ficam no canal privado de suporte. O papel SSO também não pode consultar o motivo no suporte. Até resolver, só destinatários verificados e o simulador podem receber.
 5. O registro A de `sirenia.mage.dev.br` e o HTTPS ainda não foram ativados: o servidor precisa estar preparado antes do corte. Os registros DNS do e-mail já estão salvos e verificados.
 
 Não há garantia de capacidade em produção, entrega em caixa de entrada ou publicação concluída a partir desses testes locais. O procedimento e o checklist de corte estão em `GUIA-AWS.md`.
